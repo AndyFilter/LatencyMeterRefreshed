@@ -86,10 +86,12 @@
         constexpr ImVec2(const MyVec2& f) : x(f.x), y(f.y) {}                   \
         operator MyVec2() const { return MyVec2(x,y); }
 
+        */
 #define IM_VEC4_CLASS_EXTRA                                                     \
-        constexpr ImVec4(const MyVec4& f) : x(f.x), y(f.y), z(f.z), w(f.w) {}   \
-        operator MyVec4() const { return MyVec4(x,y,z,w); }
-*/
+        constexpr ImVec4& operator*=(const float f) { this->x *= f; this->y *= f; this->z *= f; this->w *= f; return *this; } \
+        constexpr ImVec4 operator*(const float f) { return ImVec4(x*f, y*f, z*f, w*f); }
+        //ImVec4 operator*(float f) { x *= f; y *= f; z *= f; w *= f; return this; }
+
 
 //---- Use 32-bit vertex indices (default is 16-bit) is one way to allow large meshes with more than 64K vertices.
 // Your renderer backend will need to support it (most example renderer backends support both 16/32-bit indices).

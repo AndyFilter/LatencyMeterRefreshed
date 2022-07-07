@@ -2,7 +2,7 @@
 
 namespace GUI
 {
-	void Setup(void (*OnGuiFunc)());
+	void Setup(int (*OnGuiFunc)());
 	int DrawGui() noexcept;
 	void Destroy() noexcept;
 }
