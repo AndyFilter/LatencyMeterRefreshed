@@ -1392,7 +1392,6 @@ void ImGui::SeparatorEx(ImGuiSeparatorFlags flags)
     }
     else if (flags & ImGuiSeparatorFlags_Horizontal)
     {
-        printf("Windows Size x: %f\n", window->Size.x);
         // Horizontal Separator
         float x1 = window->Pos.x;
         float x2 = window->Pos.x + window->Size.x;
@@ -1467,7 +1466,6 @@ void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
     const ImVec2 default_size = (flags == ImGuiSeparatorFlags_Horizontal) ?
         ImVec2(window->Size.x, 0) :
         ImVec2(0, window->DC.CurrLineSize.y);
-    //printf("Size_arg x: %f, y: %f\n", size_arg.x, size_arg.y);
     const ImVec2 size(size_arg.x == 0.0f ? default_size.x : size_arg.x, size_arg.y == 0.0f ? default_size.y : size_arg.y);
     const ImRect bb(window->DC.CursorPos, window->DC.CursorPos + size);
     if (flags & ImGuiSeparatorFlags_Vertical)
@@ -1503,7 +1501,6 @@ void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
     else if (flags & ImGuiSeparatorFlags_Horizontal)
     {
         ImGui::Dummy({ 0, size.y / 2 });
-        printf("Size x: %f, y: %f\n", size.x, size.y);
 
         // Horizontal Separator
         float x1 = window->Pos.x + (window->Size.x / 2) - (size.x / 2);

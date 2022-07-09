@@ -56,7 +56,7 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
 
     // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsDark();
     //ImGui::StyleColorsClassic();
 
     // Setup Platform/Renderer backends
@@ -66,7 +66,7 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     ImFont* font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Lucon.ttf", 13.f);
     io.FontDefault = font;
 
-    io.DeltaTime = 200;
+    //io.DeltaTime = 200;
 
     //ImGuiStyle& style = ImGui::GetStyle();
     //style.Colors[ImGuiCol_Text] = ImVec4(0.31f, 0.25f, 0.24f, 1.00f);
@@ -115,12 +115,50 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     style.FrameBorderSize = 0.5f;
 
     ImVec4* colors = style.Colors;
+    //colors[ImGuiCol_Text] = ImVec4(0.8f, 0.8f, 0.8f, 1);
+    //colors[ImGuiCol_TextDisabled] = ImVec4(0.36f, 0.36f, 0.36f, 1);
+    //colors[ImGuiCol_WindowBg] = ImVec4(0.2f, 0.2f, 0.2f, 1);
+    //colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    //colors[ImGuiCol_PopupBg] = ImVec4(0.15f, 0.15f, 0.15f, 1);
+    //colors[ImGuiCol_Border] = ImVec4(0.293f, 0.293f, 0.293f, 1.000f);
+    //colors[ImGuiCol_FrameBg] = ImVec4(0.18f, 0.18f, 0.18f, 1);
+    //colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.15f, 0.15f, 1);
+    //colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.22f, 0.22f, 1);
+    //colors[ImGuiCol_TitleBg] = ImVec4(0.24f, 0.24f, 0.24f, 1);
+    //colors[ImGuiCol_TitleBgActive] = ImVec4(0.22f, 0.22f, 0.22f, 1);
+    //colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.3f, 0.3f, 0.3f, 1);
+    //colors[ImGuiCol_MenuBarBg] = ImVec4(0.2f, 0.2f, 0.2f, 1);
+    //colors[ImGuiCol_ScrollbarBg] = ImVec4(0.2f, 0.2f, 0.2f, 1);
+    //colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.3f, 0.3f, 0.3f, 1);
+    //colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.48f, 0.48f, 0.48f, 1);
+    //colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.6f, 0.6f, 0.6f, 1);
+    //colors[ImGuiCol_CheckMark] = ImVec4(0.22f, 0.56f, 0.94f, 1);
+    //colors[ImGuiCol_SliderGrab] = ImVec4(0.6f, 0.6f, 0.6f, 1);
+    //colors[ImGuiCol_SliderGrabActive] = ImVec4(0.8f, 0.8f, 0.8f, 1);
+    //colors[ImGuiCol_Button] = ImVec4(0.18f, 0.18f, 0.18f, 1);
+    //colors[ImGuiCol_ButtonHovered] = ImVec4(0.15f, 0.15f, 0.15f, 1);
+    //colors[ImGuiCol_ButtonActive] = ImVec4(0.22f, 0.22f, 0.22f, 1);
+    //colors[ImGuiCol_Header] = ImVec4(0.556f, 0.143f, 0.212f, 1.0f);
+    //colors[ImGuiCol_HeaderHovered] = ImVec4(0.5f, 0.128f, 0.191f, 1.0f);
+    //colors[ImGuiCol_HeaderActive] = ImVec4(0.445f, 0.114f, 0.170f, 1.0f);
+    //colors[ImGuiCol_Separator] = ImVec4(0.3f, 0.3f, 0.3f, 1);
+    //colors[ImGuiCol_SeparatorHovered] = ImVec4(0.48f, 0.48f, 0.48f, 1);
+    //colors[ImGuiCol_SeparatorActive] = ImVec4(0.6f, 0.6f, 0.6f, 1);
+    //colors[ImGuiCol_ResizeGrip] = ImVec4(0.3f, 0.3f, 0.3f, 1);
+    //colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.48f, 0.48f, 0.48f, 1);
+    //colors[ImGuiCol_ResizeGripActive] = ImVec4(0.6f, 0.6f, 0.6f, 1);
+    //colors[ImGuiCol_PlotLines] = ImVec4(0.15f, 0.5f, 0.92f, 1);
+    //colors[ImGuiCol_PlotLinesHovered] = ImVec4(0.29f, 0.61f, 0.96f, 1);
+    //colors[ImGuiCol_PlotHistogram] = ImVec4(0.15f, 0.5f, 0.92f, 1);
+    //colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.29f, 0.61f, 0.96f, 1);
+    //colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
+
     colors[ImGuiCol_Text] = ImVec4(0.8f, 0.8f, 0.8f, 1);
     colors[ImGuiCol_TextDisabled] = ImVec4(0.36f, 0.36f, 0.36f, 1);
     colors[ImGuiCol_WindowBg] = ImVec4(0.2f, 0.2f, 0.2f, 1);
     colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_PopupBg] = ImVec4(0.15f, 0.15f, 0.15f, 1);
-    colors[ImGuiCol_Border] = ImVec4(0.293f, 0.293f, 0.293f, 1.000f);
+    colors[ImGuiCol_Border] = ImVec4(0.24f, 0.24f, 0.24f, 1);
     colors[ImGuiCol_FrameBg] = ImVec4(0.18f, 0.18f, 0.18f, 1);
     colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.15f, 0.15f, 1);
     colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.22f, 0.22f, 1);
@@ -138,9 +176,9 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     colors[ImGuiCol_Button] = ImVec4(0.18f, 0.18f, 0.18f, 1);
     colors[ImGuiCol_ButtonHovered] = ImVec4(0.15f, 0.15f, 0.15f, 1);
     colors[ImGuiCol_ButtonActive] = ImVec4(0.22f, 0.22f, 0.22f, 1);
-    colors[ImGuiCol_Header] = ImVec4(0.556f, 0.143f, 0.212f, 1.0f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.5f, 0.128f, 0.191f, 1.0f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.445f, 0.114f, 0.170f, 1.0f);
+    colors[ImGuiCol_Header] = ImVec4(0.15f, 0.5f, 0.92f, 1);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.22f, 0.56f, 0.94f, 1);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.29f, 0.61f, 0.96f, 1);
     colors[ImGuiCol_Separator] = ImVec4(0.3f, 0.3f, 0.3f, 1);
     colors[ImGuiCol_SeparatorHovered] = ImVec4(0.48f, 0.48f, 0.48f, 1);
     colors[ImGuiCol_SeparatorActive] = ImVec4(0.6f, 0.6f, 0.6f, 1);
@@ -151,7 +189,8 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     colors[ImGuiCol_PlotLinesHovered] = ImVec4(0.29f, 0.61f, 0.96f, 1);
     colors[ImGuiCol_PlotHistogram] = ImVec4(0.15f, 0.5f, 0.92f, 1);
     colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.29f, 0.61f, 0.96f, 1);
-    colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
+
+
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.2f, 0.15f, 0.5, 0.92f);//ImGui::ColorConvertU32ToFloat4((BLUE400 & 0x00FFFFFF) | 0x33000000);
     colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
     colors[ImGuiCol_NavHighlight] = ImVec4(0.69f, 1, 1, 1); //ImGui::ColorConvertU32ToFloat4((GRAY900 & 0x00FFFFFF) | 0x0A000000);
@@ -165,9 +204,11 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
 
     return;
 }
-
+long lastFrame = 0;
 int GUI::DrawGui() noexcept
 {
+    //if ((clock() - lastFrame) < 11)
+    //    return 0;
     static bool showMainWindow = true;
     static ImVec4 clear_color = ImVec4(0.55f, 0.45f, 0.60f, 1.00f);
     static bool done = false;
@@ -206,7 +247,7 @@ int GUI::DrawGui() noexcept
     g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
     g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
+    lastFrame = clock();
     g_pSwapChain->Present(1, 0); // Present with vsync
     //g_pSwapChain->Present(0, 0); // Present without vsync
     return 0;
@@ -231,12 +272,12 @@ bool CreateDeviceD3D(HWND hWnd)
     // Setup swap chain
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
-    sd.BufferCount = 2;
+    sd.BufferCount = 1;
     sd.BufferDesc.Width = 0;
     sd.BufferDesc.Height = 0;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate.Numerator = 60;
-    sd.BufferDesc.RefreshRate.Denominator = 1;
+    sd.BufferDesc.RefreshRate.Numerator = 0; // 60
+    sd.BufferDesc.RefreshRate.Denominator = 0; // 1
     sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hWnd;
