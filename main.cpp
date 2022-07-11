@@ -22,17 +22,32 @@ float accentBrightness = 0.1f;
 float fontColor[4];
 float fontBrightness = 0.1f;
 
+int selectedFont = 0;
+float fontSize = 1.f;
+ImFont* boldFont;
+
 
 float accentColorBak[4];
 float accentBrightnessBak = 0.1f;
 
 float fontColorBak[4];
 float fontBrightnessBak = 0.1f;
+
+int selectedFontBak = 0;
+float fontSizeBak = 1.f;
+ImFont* boldFontBak;
+
+
+
+
+const char* fonts[4]{ "Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console" };
+const int fontIndex[4]{ 0, 2, 4, 5 };
 // -------
 
 /*
 TODO:
-- Add multiple fonts to chose from.
+
++ Add multiple fonts to chose from.
 - Add a way to change background color (?)
 - Add the functionality...
 
@@ -47,13 +62,13 @@ uint64_t micros()
 	uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
 		std::chrono::high_resolution_clock::now().time_since_epoch())
 		.count();
-	static uint64_t start{us};
+	static uint64_t start{ us };
 	return us - start;
 }
 
 void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum])
 {
-	auto&style = ImGui::GetStyle();
+	auto& style = ImGui::GetStyle();
 	for (int i = 0; i < styleColorNum; i++)
 	{
 		float brightness = brightnesses[i];
@@ -90,9 +105,21 @@ void RevertStyle()
 
 	accentBrightness = accentBrightnessBak;
 	fontBrightness = fontBrightnessBak;
+
+	fontSize = fontSizeBak;
+	selectedFont = selectedFontBak;
+	boldFont = boldFontBak;
+
+	ImGuiIO& io = ImGui::GetIO();
+
+	for (int i = 0; i < io.Fonts->Fonts.Size; i++)
+	{
+		io.Fonts->Fonts[i]->Scale = fontSize;
+	}
+	io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
 }
 
-bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], size_t size = styleColorNum)
+bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
 {
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
@@ -118,6 +145,10 @@ bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleCol
 			break;
 		}
 	}
+	selectedFontBak = selectedFont;
+	fontSizeBak = fontSize;
+	boldFontBak = boldFont;
+	configFile << "F" << fontIndex << std::to_string(fontSize) << std::endl;
 	configFile.close();
 
 	std::cout << "File Closed\n";
@@ -125,7 +156,34 @@ bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleCol
 	return true;
 }
 
-bool ReadStyleConfig(float (&colors)[styleColorNum][4], float (&brightnesses)[styleColorNum])
+// Does the calcualtions and copying for you
+void SaveCurrentStyleConfig()
+{
+	float colors[2][4];
+	float brightnesses[2]{ accentBrightness, fontBrightness };
+	//std::copy(&accentColor, &accentColor + 2, &colors);
+	//std::copy(&fontColor, &fontColor + 2, &colors[1]);
+	memcpy(&colors, &accentColor, colorSize);
+	memcpy(&colors[1], &fontColor, colorSize);
+
+	SaveStyleConfig(colors, brightnesses, selectedFont, fontSize);
+}
+
+ImFont* GetFontBold(int i)
+{
+	ImGuiIO &io = ImGui::GetIO();
+	std::string fontDebugName = (std::string)io.Fonts->Fonts[fontIndex[i]]->GetDebugName();
+	if (fontDebugName.find('-') == std::string::npos || fontDebugName.find(',') == std::string::npos)
+		return nullptr;
+	auto fontName = fontDebugName.substr(fontDebugName.find('-'), fontDebugName.find(','));
+	if (auto _boldFont = (io.Fonts->Fonts[fontIndex[i + 1]]); ((std::string)(_boldFont->GetDebugName())).find(fontName))
+	{
+		return _boldFont;
+	}
+	return nullptr;
+}
+
+bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styleColorNum], int& fontIndex, float& fontSize)
 {
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
@@ -140,6 +198,13 @@ bool ReadStyleConfig(float (&colors)[styleColorNum][4], float (&brightnesses)[st
 	std::string line, colorPart, brightnessPart;
 	while (std::getline(configFile, line))
 	{
+		if (line[0] == 'F')
+		{
+			fontIndex = line[1] - '0';
+			fontSize = std::stof(line.substr(2, line.find("\n")));
+			continue;
+		}
+
 		// First char of the line is the index (just to be sure)
 		int index = (int)(line[0] - '0');
 
@@ -187,92 +252,139 @@ int OnGui()
 
 	ImGuiStyle& style = ImGui::GetStyle();
 	const auto avail = ImGui::GetContentRegionAvail();
+	ImGuiIO& io = ImGui::GetIO();
 
 	if (isSettingOpen)
 	{
 		ImGui::SetNextWindowSize({ 480.0f, 480.0f });
-		ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize);
 
-		static int selectedSettings = 0;
-		const auto avail = ImGui::GetContentRegionAvail();
-
-		const char* items[3]{ "Style", "Performance", "Test" };
-
-		// Makes list take ({listBoxSize}*100)% width of the parent
-		float listBoxSize = 0.3f;
-
-		ImGui::BeginListBox("##Setting", { avail.x * listBoxSize, avail.y });
+		bool wasLastSettingsOpen = isSettingOpen;
+		if (ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize))
 		{
-			for (int i = 0; i < sizeof(items) / sizeof(items[0]); i++)
+			// On Settings Window Closed:
+			if (wasLastSettingsOpen && !isSettingOpen)
 			{
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (style.ItemSpacing.x / 2) - 2);
-				ImVec2 label_size = ImGui::CalcTextSize(items[i], NULL, true);
-				bool isSelected = (selectedSettings == i);
-				if (ImGui::Selectable(items[i], isSelected, 0, { (avail.x * listBoxSize - (style.ItemSpacing.x) - (style.FramePadding.x * 2)) + 4, label_size.y }, style.FrameRounding))
+				ImGui::OpenPopup("Save Style?");
+			}
+
+			if (ImGui::BeginPopupModal("Save Style?", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+			{
+				isSettingOpen = true;
+				ImGui::PushFont(boldFont);
+				ImGui::Text("Do you want to save before exiting?");
+				ImGui::PopFont();
+
+				
+				ImGui::Separator();
+				ImGui::Dummy({ 0, ImGui::GetTextLineHeight() });
+
+				// These buttons don't really fit the window perfectly with some fonts, I might have to look into that.
+				ImGui::BeginGroup();
+				if (ImGui::Button("Save"))
 				{
-					selectedSettings = i;
+					SaveCurrentStyleConfig();
+					isSettingOpen = false;
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Discard"))
+				{
+					RevertStyle();
+					isSettingOpen = false;
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel"))
+				{
+					ImGui::CloseCurrentPopup();
+				}
+
+				ImGui::EndGroup();
+
+				ImGui::EndPopup();
+			}
+
+
+			static int selectedSettings = 0;
+			const auto avail = ImGui::GetContentRegionAvail();
+
+			const char* items[3]{ "Style", "Performance", "Test" };
+
+			// Makes list take ({listBoxSize}*100)% width of the parent
+			float listBoxSize = 0.3f;
+
+			ImGui::BeginListBox("##Setting", { avail.x * listBoxSize, avail.y });
+			{
+				for (int i = 0; i < sizeof(items) / sizeof(items[0]); i++)
+				{
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (style.ItemSpacing.x / 2) - 2);
+					ImVec2 label_size = ImGui::CalcTextSize(items[i], NULL, true);
+					bool isSelected = (selectedSettings == i);
+					if (ImGui::Selectable(items[i], isSelected, 0, { (avail.x * listBoxSize - (style.ItemSpacing.x) - (style.FramePadding.x * 2)) + 4, label_size.y }, style.FrameRounding))
+					{
+						selectedSettings = i;
+					}
 				}
 			}
-		}
-		ImGui::EndListBox();
+			ImGui::EndListBox();
 
-		ImGui::SameLine();
+			ImGui::SameLine();
 
-		switch (selectedSettings)
-		{
-		case 0: // Style
-		{
-			ImGui::BeginGroup();
-			ImGui::BeginChild("Style", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true);
+			switch (selectedSettings)
+			{
+			case 0: // Style
+			{
+				ImGui::BeginGroup();
+				ImGui::BeginChild("Style", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true);
 
-			ImGui::ColorEdit4("Main Color", accentColor);
+				ImGui::ColorEdit4("Main Color", accentColor);
 
-			ImGui::PushID(02);
-			ImGui::SliderFloat("Brightness", &accentBrightness, -0.5f, 0.5f);
-			ImGui::PopID();
+				ImGui::PushID(02);
+				ImGui::SliderFloat("Brightness", &accentBrightness, -0.5f, 0.5f);
+				ImGui::PopID();
 
-			auto _accentColor = ImVec4(*(ImVec4*)accentColor);
-			auto darkerAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - accentBrightness);
-			auto darkestAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - accentBrightness * 2);
+				auto _accentColor = ImVec4(*(ImVec4*)accentColor);
+				auto darkerAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - accentBrightness);
+				auto darkestAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - accentBrightness * 2);
 
-			// Alpha has to be set separatly, because it also gets multiplied times brightness.
-			auto alphaAccent = ImVec4(*(ImVec4*)accentColor).w;
-			_accentColor.w = alphaAccent;
-			darkerAccent.w = alphaAccent;
-			darkestAccent.w = alphaAccent;
+				// Alpha has to be set separatly, because it also gets multiplied times brightness.
+				auto alphaAccent = ImVec4(*(ImVec4*)accentColor).w;
+				_accentColor.w = alphaAccent;
+				darkerAccent.w = alphaAccent;
+				darkestAccent.w = alphaAccent;
 
-			ImGui::Dummy({ 0, ImGui::GetFrameHeight() / 2 });
+				ImGui::Dummy({ 0, ImGui::GetFrameHeight() / 2 });
 
-			ImVec2 colorsAvail = ImGui::GetContentRegionAvail();
+				ImVec2 colorsAvail = ImGui::GetContentRegionAvail();
 
-			ImGui::ColorButton("Accent Color", (ImVec4)_accentColor, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
-			ImGui::ColorButton("Accent Color Dark", darkerAccent, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
-			ImGui::ColorButton("Accent Color Darkest", darkestAccent, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
-
-
-			ImGui::SeparatorSpace(ImGuiLayoutType_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
+				ImGui::ColorButton("Accent Color", (ImVec4)_accentColor, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
+				ImGui::ColorButton("Accent Color Dark", darkerAccent, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
+				ImGui::ColorButton("Accent Color Darkest", darkestAccent, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
 
 
-			ImGui::ColorEdit4("Font Color", fontColor);
+				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
 
-			ImGui::PushID(12);
-			ImGui::SliderFloat("Brightness", &fontBrightness, -1.0f, 1.0f, "%.3f");
-			ImGui::PopID();
 
-			auto _fontColor = ImVec4(*(ImVec4*)fontColor);
-			auto darkerFont = ImVec4(*(ImVec4*)&_fontColor) * (1 - fontBrightness);
+				ImGui::ColorEdit4("Font Color", fontColor);
 
-			// Alpha has to be set separatly, because it also gets multiplied times brightness.
-			auto alphaFont = ImVec4(*(ImVec4*)fontColor).w;
-			_fontColor.w = alphaFont;
-			darkerFont.w = alphaFont;
+				ImGui::PushID(12);
+				ImGui::SliderFloat("Brightness", &fontBrightness, -1.0f, 1.0f, "%.3f");
+				ImGui::PopID();
 
-			ImGui::Dummy({ 0, ImGui::GetFrameHeight() / 2 });
+				auto _fontColor = ImVec4(*(ImVec4*)fontColor);
+				auto darkerFont = ImVec4(*(ImVec4*)&_fontColor) * (1 - fontBrightness);
 
-			ImGui::ColorButton("Font Color", _fontColor, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
-			ImGui::ColorButton("Font Color Dark", darkerFont, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
+				// Alpha has to be set separatly, because it also gets multiplied times brightness.
+				auto alphaFont = ImVec4(*(ImVec4*)fontColor).w;
+				_fontColor.w = alphaFont;
+				darkerFont.w = alphaFont;
 
-			//ImGui::SetCursorPosY(avail.y - ImGui::GetFrameHeight() - style.WindowPadding.y);
+				ImGui::Dummy({ 0, ImGui::GetFrameHeight() / 2 });
+
+				ImGui::ColorButton("Font Color", _fontColor, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
+				ImGui::ColorButton("Font Color Dark", darkerFont, 0, { colorsAvail.x, ImGui::GetFrameHeight() });
+
+				//ImGui::SetCursorPosY(avail.y - ImGui::GetFrameHeight() - style.WindowPadding.y);
 
 				float colors[2][4];
 				float brightnesses[2]{ accentBrightness, fontBrightness };
@@ -280,33 +392,75 @@ int OnGui()
 				memcpy(&colors[1][0], &fontColor, colorSize);
 				ApplyStyle(colors, brightnesses);
 
-			ImGui::EndChild();
 
-			ImGui::BeginGroup();
+				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
 
-			auto buttonsAvail = ImGui::GetContentRegionAvail();
 
-			if (ImGui::Button("Revert", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight()}))
-			{
-				RevertStyle();
+				//ImGui::PushFont(io.Fonts->Fonts[fontIndex[selectedFont]]);
+				if (ImGui::BeginCombo("Font", fonts[selectedFont]))
+				{
+					for (int i = 0; i < (io.Fonts->Fonts.Size / 2) + 1; i++)
+					{
+						auto selectableSpace = ImGui::GetContentRegionAvail();
+						ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
+
+						ImGui::PushFont(io.Fonts->Fonts[fontIndex[i]]);
+
+						bool isSelected = (selectedFont == i);
+						if (ImGui::Selectable(fonts[i], isSelected, 0, { selectableSpace.x - 4 ,0 }, style.FrameRounding))
+						{
+							if (selectedFont != i) {
+								io.FontDefault = io.Fonts->Fonts[fontIndex[i]];
+								if(auto _boldFont = GetFontBold(i); _boldFont != nullptr)
+									boldFont = _boldFont;
+								else
+									boldFont = io.Fonts->Fonts[fontIndex[i]];
+								selectedFont = i;
+							}
+						}
+						ImGui::PopFont();
+					}
+					ImGui::EndCombo();
+				}
+				//ImGui::PopFont();
+
+				if (ImGui::SliderFloat("Font Size", &fontSize, 0.5f, 2, "%.2f"))
+				{
+					for (int i = 0; i < io.Fonts->Fonts.Size; i++)
+					{
+						io.Fonts->Fonts[i]->Scale = fontSize;
+					}
+				}
+
+
+				ImGui::EndChild();
+
+
+				ImGui::BeginGroup();
+
+				auto buttonsAvail = ImGui::GetContentRegionAvail();
+
+				if (ImGui::Button("Revert", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
+				{
+					RevertStyle();
+				}
+
+				ImGui::SameLine();
+
+				if (ImGui::Button("Save", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
+				{
+					SaveStyleConfig(colors, brightnesses, selectedFont, fontSize);
+				}
+
+				ImGui::EndGroup();
+
+				ImGui::EndGroup();
+
+				break;
+			}
 			}
 
-			ImGui::SameLine();
-
-			if (ImGui::Button("Save", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
-			{
-				SaveStyleConfig(colors, brightnesses);
-			}
-
-			ImGui::EndGroup();
-
-			ImGui::EndGroup();
-
-			break;
 		}
-		}
-
-
 		ImGui::End();
 	}
 
@@ -331,7 +485,7 @@ int main(int, char**)
 
 	float colors[styleColorNum][4];
 	float brightnesses[styleColorNum] = { accentBrightness, fontBrightness };
-	if (ReadStyleConfig(colors, brightnesses))
+	if (ReadStyleConfig(colors, brightnesses, selectedFont, fontSize))
 	{
 		ApplyStyle(colors, brightnesses);
 
@@ -347,6 +501,26 @@ int main(int, char**)
 
 		accentBrightnessBak = brightnesses[0];
 		fontBrightnessBak = brightnesses[1];
+
+		selectedFontBak = selectedFont;
+		fontSizeBak = fontSize;
+
+		ImGuiIO& io = ImGui::GetIO();
+
+		for (int i = 0; i < io.Fonts->Fonts.Size; i++)
+		{
+			io.Fonts->Fonts[i]->Scale = fontSize;
+		}
+		io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
+		if (auto _boldFont = GetFontBold(fontIndex[selectedFont]); _boldFont != nullptr)
+		{
+			boldFont = _boldFont;
+			boldFontBak = boldFont;
+		}
+		else
+			boldFont = io.Fonts->Fonts[fontIndex[selectedFont]];
+
+		boldFontBak = boldFont;
 	}
 	else
 	{
@@ -359,14 +533,14 @@ int main(int, char**)
 
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
-	
+
 
 	// Main Loop
 	while (!done)
 	{
 		//if ((micros()) - lastFrameGui >= 1/*(1000000/79)*/)
 		// GUI Loop
-		if(micros() - lastFrameGui >= (1/75.f) * 1000000)
+		if (micros() - lastFrameGui >= (1 / 75.f) * 1000000)
 			if (GUI::DrawGui())
 				break;
 
