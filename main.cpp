@@ -16,6 +16,7 @@ float lastFrame = 0.0f;
 const int styleColorNum = 2;
 const unsigned int colorSize = 16;
 
+
 float accentColor[4];
 float accentBrightness = 0.1f;
 
@@ -38,10 +39,17 @@ float fontSizeBak = 1.f;
 ImFont* boldFontBak;
 
 
-
-
 const char* fonts[4]{ "Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console" };
 const int fontIndex[4]{ 0, 2, 4, 5 };
+// -------
+
+// ---- Functionality ----
+
+HANDLE hPort;
+DCB serialParams;
+
+std::vector<int> latencyTests;
+
 // -------
 
 /*
@@ -89,6 +97,15 @@ void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum
 			style.Colors[ImGuiCol_Header] = baseColor;
 			style.Colors[ImGuiCol_HeaderHovered] = darkerBase;
 			style.Colors[ImGuiCol_HeaderActive] = darkestBase;
+
+			style.Colors[ImGuiCol_TabHovered] = baseColor;
+			style.Colors[ImGuiCol_TabActive] = darkerBase;
+			style.Colors[ImGuiCol_Tab] = darkestBase;
+
+			style.Colors[ImGuiCol_CheckMark] = baseColor;
+
+			style.Colors[ImGuiCol_PlotLines] = style.Colors[ImGuiCol_PlotHistogram] = darkerBase;
+			style.Colors[ImGuiCol_PlotLinesHovered] = style.Colors[ImGuiCol_PlotHistogramHovered] = baseColor;
 			break;
 		case 1:
 			style.Colors[ImGuiCol_Text] = baseColor;
@@ -169,14 +186,14 @@ void SaveCurrentStyleConfig()
 	SaveStyleConfig(colors, brightnesses, selectedFont, fontSize);
 }
 
-ImFont* GetFontBold(int i)
+ImFont* GetFontBold(int baseFontIndex)
 {
 	ImGuiIO &io = ImGui::GetIO();
-	std::string fontDebugName = (std::string)io.Fonts->Fonts[fontIndex[i]]->GetDebugName();
+	std::string fontDebugName = (std::string)io.Fonts->Fonts[fontIndex[baseFontIndex]]->GetDebugName();
 	if (fontDebugName.find('-') == std::string::npos || fontDebugName.find(',') == std::string::npos)
 		return nullptr;
 	auto fontName = fontDebugName.substr(fontDebugName.find('-'), fontDebugName.find(','));
-	if (auto _boldFont = (io.Fonts->Fonts[fontIndex[i + 1]]); ((std::string)(_boldFont->GetDebugName())).find(fontName))
+	if (auto _boldFont = (io.Fonts->Fonts[fontIndex[baseFontIndex + 1]]); ((std::string)(_boldFont->GetDebugName())).find(fontName))
 	{
 		return _boldFont;
 	}
@@ -234,6 +251,39 @@ bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styl
 	return true;
 }
 
+// This could also be done just using a single global variable like "hasStyleChanged", because ImGui elements like FloatSlider, ColorEdit4 return a value (true) if the value has changed.
+// But this method would not work as expected when user reverts back the changes or sets the variable to it's original value
+bool HasStyleChanged()
+{
+	bool brightnesses = accentBrightness == accentBrightnessBak && fontBrightness == fontBrightnessBak;
+	bool font = selectedFont == selectedFontBak && fontSize == fontSizeBak;
+	bool colors{false};
+
+	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
+	// (Pointers point to different addresses even tho the values at these addresses are the same)
+	for (int column = 0; column < styleColorNum; column++)
+	{
+		if (accentColor[column] != accentColorBak[column])
+		{
+			colors = false;
+			break;
+		}
+
+		if (fontColor[column] != fontColorBak[column])
+		{
+			colors = false;
+			break;
+		}
+
+		colors = true;
+	}
+
+	if (!colors || !brightnesses || !font)
+		return true;
+	else
+		return false;
+}
+
 // Not the best GUI solution, but it's simple, fast and gets the job done.
 int OnGui()
 {
@@ -259,14 +309,16 @@ int OnGui()
 		ImGui::SetNextWindowSize({ 480.0f, 480.0f });
 
 		bool wasLastSettingsOpen = isSettingOpen;
-		if (ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize))
+		if (ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse))
 		{
 			// On Settings Window Closed:
-			if (wasLastSettingsOpen && !isSettingOpen)
+			if (wasLastSettingsOpen && !isSettingOpen && HasStyleChanged())
 			{
+				// Call a popup by name
 				ImGui::OpenPopup("Save Style?");
 			}
 
+			// Define the messagebox popup
 			if (ImGui::BeginPopupModal("Save Style?", NULL, ImGuiWindowFlags_AlwaysAutoResize))
 			{
 				isSettingOpen = true;
@@ -313,7 +365,7 @@ int OnGui()
 			// Makes list take ({listBoxSize}*100)% width of the parent
 			float listBoxSize = 0.3f;
 
-			ImGui::BeginListBox("##Setting", { avail.x * listBoxSize, avail.y });
+			if(ImGui::BeginListBox("##Setting", { avail.x * listBoxSize, avail.y }))
 			{
 				for (int i = 0; i < sizeof(items) / sizeof(items[0]); i++)
 				{
@@ -325,8 +377,8 @@ int OnGui()
 						selectedSettings = i;
 					}
 				}
+				ImGui::EndListBox();
 			}
-			ImGui::EndListBox();
 
 			ImGui::SameLine();
 
@@ -397,6 +449,7 @@ int OnGui()
 
 
 				//ImGui::PushFont(io.Fonts->Fonts[fontIndex[selectedFont]]);
+				// This has to be done manually (instead of ImGui::Combo()) to be able to change the fonts of each selectable to a corresponding one.
 				if (ImGui::BeginCombo("Font", fonts[selectedFont]))
 				{
 					for (int i = 0; i < (io.Fonts->Fonts.Size / 2) + 1; i++)
@@ -459,7 +512,6 @@ int OnGui()
 				break;
 			}
 			}
-
 		}
 		ImGui::End();
 	}
@@ -469,11 +521,89 @@ int OnGui()
 
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
+	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
+
+	if (ImGui::BeginTable("measurementsTable", 2, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders, {avail.x / 2, 0}))
+	{
+		ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 0.0f, 0);
+		ImGui::TableSetupColumn("Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
+		ImGui::TableHeadersRow();
+
+		ImGui::EndTable();
+	}
+
 	lastFrameGui = micros();
 
 	return 0;
 }
 
+
+bool SetupSerialPort(const char COM_Number[1])
+{
+	std::string serialCom = "\\\\.\\COM";
+	serialCom += COM_Number;
+	hPort = CreateFile(
+		serialCom.c_str(),
+		GENERIC_WRITE | GENERIC_READ,
+		0,
+		NULL,
+		OPEN_EXISTING,
+		0,
+		NULL
+	);
+
+	DCB serialParams;
+	serialParams.ByteSize = sizeof(serialParams);
+
+	if (!GetCommState(hPort, &serialParams))
+		return false;
+
+	serialParams.BaudRate = 19200;
+	serialParams.Parity = NOPARITY;
+	serialParams.ByteSize = 8;
+	serialParams.StopBits = ONESTOPBIT;
+
+	if (!SetCommState(hPort, &serialParams))
+		return false;
+
+	COMMTIMEOUTS timeout = { 0 };
+	timeout.ReadIntervalTimeout = 50;
+	timeout.ReadTotalTimeoutConstant = 50;
+	timeout.ReadTotalTimeoutMultiplier = 50;
+	timeout.WriteTotalTimeoutConstant = 50;
+	timeout.WriteTotalTimeoutMultiplier = 10;
+
+	if (SetCommTimeouts(hPort, &timeout))
+		return false;
+
+	return true;
+}
+
+void HandleSerial()
+{
+	DWORD dwBytesTransferred;
+	DWORD dwCommModemStatus{};
+	BYTE byte = NULL;
+
+	SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
+	//WaitCommEvent(hPort, &dwCommModemStatus, 0); //wait for character
+
+	//if (dwCommModemStatus & EV_RXCHAR)
+	// Does not work.
+	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0); //read 1
+	//else if (dwCommModemStatus & EV_ERR)
+	//	return;
+
+	if (byte == NULL)
+		return;
+
+	printf("Got: %c\n", byte);
+}
+
+void CloseSerial()
+{
+	CloseHandle(hPort);
+}
 
 // Main code
 int main(int, char**)
@@ -534,10 +664,13 @@ int main(int, char**)
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
 
+	if (SetupSerialPort("4"))
+		printf("Serial Port opened successfuly");
 
 	// Main Loop
 	while (!done)
 	{
+		HandleSerial();
 		//if ((micros()) - lastFrameGui >= 1/*(1000000/79)*/)
 		// GUI Loop
 		if (micros() - lastFrameGui >= (1 / 75.f) * 1000000)
@@ -550,5 +683,6 @@ int main(int, char**)
 		Sleep(1);
 	}
 
+	CloseSerial();
 	GUI::Destroy();
 }

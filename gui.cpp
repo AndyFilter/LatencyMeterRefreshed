@@ -72,8 +72,10 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     io.FontDefault =  io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Regular.ttf", defaultFontSize, &config);
     io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Bold.ttf", defaultFontSize, &config);
 
+    config.GlyphOffset.y = -1;
     io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
     io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Bold.ttf", defaultFontSize, &config);
+    config.GlyphOffset.y = 0;
 
     //io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Gothicb.ttf", 14.f);
     io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Framd.ttf", defaultFontSize, &config);
@@ -251,9 +253,11 @@ int GUI::DrawGui() noexcept
     ImGui::NewFrame();
 
 
-    ImGui::SetNextWindowSize({ (float)windowX , (float)windowY / 2 });
+    ImGui::SetNextWindowSize({ (float)windowX - ImGui::GetStyle().WindowPadding.x * 2, (float)windowY / 2});
     //ImGui::SetCursorPos({ 0,0 });
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+    ImGui::PopStyleVar();
 
     // Call the GUI function in main file
     if (int maninGui = mainGuiFunc())
