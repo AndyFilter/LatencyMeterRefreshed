@@ -4,9 +4,11 @@
 #include <fstream>
 #include <string.h>
 
+#include "serial.h"
 #include "gui.h"
 #include "External/ImGui/imgui.h"
 #include "External/ImGui/imgui_internal.h"
+#include "structs.h"
 
 
 float lastFrameGui = 0.0f;
@@ -45,9 +47,9 @@ const int fontIndex[4]{ 0, 2, 4, 5 };
 
 // ---- Functionality ----
 
-HANDLE hPort;
-DCB serialParams;
+SerialStatus serialStatus = Status_Idle;
 
+int selectedPort = 0;
 std::vector<int> latencyTests;
 
 // -------
@@ -188,7 +190,7 @@ void SaveCurrentStyleConfig()
 
 ImFont* GetFontBold(int baseFontIndex)
 {
-	ImGuiIO &io = ImGui::GetIO();
+	ImGuiIO& io = ImGui::GetIO();
 	std::string fontDebugName = (std::string)io.Fonts->Fonts[fontIndex[baseFontIndex]]->GetDebugName();
 	if (fontDebugName.find('-') == std::string::npos || fontDebugName.find(',') == std::string::npos)
 		return nullptr;
@@ -257,7 +259,7 @@ bool HasStyleChanged()
 {
 	bool brightnesses = accentBrightness == accentBrightnessBak && fontBrightness == fontBrightnessBak;
 	bool font = selectedFont == selectedFontBak && fontSize == fontSizeBak;
-	bool colors{false};
+	bool colors{ false };
 
 	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
 	// (Pointers point to different addresses even tho the values at these addresses are the same)
@@ -326,7 +328,7 @@ int OnGui()
 				ImGui::Text("Do you want to save before exiting?");
 				ImGui::PopFont();
 
-				
+
 				ImGui::Separator();
 				ImGui::Dummy({ 0, ImGui::GetTextLineHeight() });
 
@@ -365,14 +367,15 @@ int OnGui()
 			// Makes list take ({listBoxSize}*100)% width of the parent
 			float listBoxSize = 0.3f;
 
-			if(ImGui::BeginListBox("##Setting", { avail.x * listBoxSize, avail.y }))
+			if (ImGui::BeginListBox("##Setting", { avail.x * listBoxSize, avail.y }))
 			{
 				for (int i = 0; i < sizeof(items) / sizeof(items[0]); i++)
 				{
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (style.ItemSpacing.x / 2) - 2);
+					//ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (style.ItemSpacing.x / 2) - 2);
 					ImVec2 label_size = ImGui::CalcTextSize(items[i], NULL, true);
 					bool isSelected = (selectedSettings == i);
-					if (ImGui::Selectable(items[i], isSelected, 0, { (avail.x * listBoxSize - (style.ItemSpacing.x) - (style.FramePadding.x * 2)) + 4, label_size.y }, style.FrameRounding))
+					//if (ImGui::Selectable(items[i], isSelected, 0, { (avail.x * listBoxSize - (style.ItemSpacing.x) - (style.FramePadding.x * 2)) + 4, label_size.y }, style.FrameRounding))
+					if (ImGui::Selectable(items[i], isSelected, 0, { 0, 0 }, style.FrameRounding))
 					{
 						selectedSettings = i;
 					}
@@ -441,7 +444,7 @@ int OnGui()
 				float colors[2][4];
 				float brightnesses[2]{ accentBrightness, fontBrightness };
 				memcpy(&colors, &accentColor, colorSize);
-				memcpy(&colors[1][0], &fontColor, colorSize);
+				memcpy(&colors[1], &fontColor, colorSize);
 				ApplyStyle(colors, brightnesses);
 
 
@@ -455,16 +458,16 @@ int OnGui()
 					for (int i = 0; i < (io.Fonts->Fonts.Size / 2) + 1; i++)
 					{
 						auto selectableSpace = ImGui::GetContentRegionAvail();
-						ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
+						//ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
 
 						ImGui::PushFont(io.Fonts->Fonts[fontIndex[i]]);
 
 						bool isSelected = (selectedFont == i);
-						if (ImGui::Selectable(fonts[i], isSelected, 0, { selectableSpace.x - 4 ,0 }, style.FrameRounding))
+						if (ImGui::Selectable(fonts[i], isSelected, 0, { 0, 0 }, style.FrameRounding))
 						{
 							if (selectedFont != i) {
 								io.FontDefault = io.Fonts->Fonts[fontIndex[i]];
-								if(auto _boldFont = GetFontBold(i); _boldFont != nullptr)
+								if (auto _boldFont = GetFontBold(i); _boldFont != nullptr)
 									boldFont = _boldFont;
 								else
 									boldFont = io.Fonts->Fonts[fontIndex[i]];
@@ -521,24 +524,110 @@ int OnGui()
 
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
+	ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (CPU ONLY)", (micros() - lastFrame) / 1000, 1000000.0f / (micros() - lastFrame));
+
 	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
 
-	if (ImGui::BeginTable("measurementsTable", 2, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders, {avail.x / 2, 0}))
+	//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
+	if (ImGui::BeginCombo("Select Port", Serial::availablePorts[selectedPort].c_str()))
+	{
+		for (int i = 0; i < Serial::availablePorts.size(); i++)
+		{
+			bool isSelected = (selectedPort == i);
+			if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
+			{
+				selectedPort = i;
+			}
+		}
+		ImGui::EndCombo();
+	}
+
+	auto tableAvail = ImGui::GetContentRegionAvail();
+
+	if (ImGui::BeginTable("measurementsTable", 2, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { avail.x / 2, 200 }))
 	{
 		ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 0.0f, 0);
 		ImGui::TableSetupColumn("Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
 		ImGui::TableHeadersRow();
 
+		ImGuiListClipper clipper;
+		clipper.Begin(latencyTests.size());
+		while (clipper.Step())
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+			{
+				int latency = latencyTests[i];
+
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				ImGui::Text("%i", i);
+				ImGui::TableNextColumn();
+				ImGui::Text("%i", latency);
+			}
+
 		ImGui::EndTable();
 	}
+
+	ImGui::RenderFrame(
+		{ 0 - style.WindowPadding.x, avail.y - 100 },
+		{ avail.x + style.WindowPadding.x + style.FramePadding.x, avail.y },
+		// Change the color to white to be detected by the light sensor
+		serialStatus == Status_WaitingForResult ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32( ImVec4(0.f, 0.f, 0.f, 1)),
+		false
+		);
 
 	lastFrameGui = micros();
 
 	return 0;
 }
 
+void GotSerialChar(char c)
+{
+	printf("Got: %c\n", c);
 
-bool SetupSerialPort(const char COM_Number[1])
+	static BYTE resultBuffer[5]{};
+	static BYTE resultNum = 0;
+
+	switch (serialStatus)
+	{
+	case Status_Idle:
+		// Input (button press) detected
+		if (c == 'l')
+		{
+			printf("waiting for results\n");
+			serialStatus = Status_WaitingForResult;
+		}
+		break;
+	case Status_WaitingForResult:
+		if (c == 'e')
+		{
+			int result = 0;
+			for (int i = 0; i < resultNum; i++)
+			{
+				result += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
+			}
+			printf("Final result: %i\n", result);
+			latencyTests.push_back(result);
+			resultNum = 0;
+			std::fill_n(resultBuffer, 5, 0);
+			serialStatus = Status_Idle;
+		}
+		else
+		{
+			int digit = c - '0';
+			resultBuffer[resultNum] = digit;
+			resultNum += 1;
+		}
+		break;
+	case Status_Ping:
+		break;
+	default:
+		break;
+	}
+}
+
+// Will be removed in some later push
+#ifdef LocalSerial
+bool SetupSerialPort(char COM_Number)
 {
 	std::string serialCom = "\\\\.\\COM";
 	serialCom += COM_Number;
@@ -546,9 +635,9 @@ bool SetupSerialPort(const char COM_Number[1])
 		serialCom.c_str(),
 		GENERIC_WRITE | GENERIC_READ,
 		0,
-		NULL,
-		OPEN_EXISTING,
 		0,
+		OPEN_EXISTING,
+		FILE_FLAG_OVERLAPPED, // Make reading async
 		NULL
 	);
 
@@ -558,7 +647,7 @@ bool SetupSerialPort(const char COM_Number[1])
 	if (!GetCommState(hPort, &serialParams))
 		return false;
 
-	serialParams.BaudRate = 19200;
+	serialParams.BaudRate = 19200; // Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
 	serialParams.Parity = NOPARITY;
 	serialParams.ByteSize = 8;
 	serialParams.StopBits = ONESTOPBIT;
@@ -567,14 +656,16 @@ bool SetupSerialPort(const char COM_Number[1])
 		return false;
 
 	COMMTIMEOUTS timeout = { 0 };
-	timeout.ReadIntervalTimeout = 50;
-	timeout.ReadTotalTimeoutConstant = 50;
-	timeout.ReadTotalTimeoutMultiplier = 50;
-	timeout.WriteTotalTimeoutConstant = 50;
-	timeout.WriteTotalTimeoutMultiplier = 10;
+	timeout.ReadIntervalTimeout = MAXDWORD;
+	timeout.ReadTotalTimeoutConstant = 0;
+	timeout.ReadTotalTimeoutMultiplier = 0;
+	timeout.WriteTotalTimeoutConstant = 0;
+	timeout.WriteTotalTimeoutMultiplier = 0;
 
 	if (SetCommTimeouts(hPort, &timeout))
 		return false;
+
+	//SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
 
 	return true;
 }
@@ -585,25 +676,137 @@ void HandleSerial()
 	DWORD dwCommModemStatus{};
 	BYTE byte = NULL;
 
-	SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
+	/*
+	//if (ReadFile(hPort, &byte, 1, &dwBytesTransferred, NULL))
+	//	printf("Got: %c\n", byte);
+
+	//return;
+
+	//SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
 	//WaitCommEvent(hPort, &dwCommModemStatus, 0); //wait for character
 
 	//if (dwCommModemStatus & EV_RXCHAR)
 	// Does not work.
-	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0); //read 1
+	//ReadFile(hPort, &byte, 1, NULL, NULL); //read 1
 	//else if (dwCommModemStatus & EV_ERR)
 	//	return;
+
+	//OVERLAPPED o = { 0 };
+	//o.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+	//SetCommMask(hPort, EV_RXCHAR);
+
+	//if (!WaitCommEvent(hPort, &dwCommModemStatus, &o))
+	//{
+	//	DWORD er = GetLastError();
+	//	if (er == ERROR_IO_PENDING)
+	//	{
+	//		DWORD dwRes = WaitForSingleObject(o.hEvent, 1);
+	//		switch (dwRes)
+	//		{
+	//			case WAIT_OBJECT_0:
+	//				if (ReadFile(hPort, &byte, 1, &dwRead, &o))
+	//					printf("Got: %c\n", byte);
+	//				break;
+	//		default:
+	//			printf("care off");
+	//			break;
+	//		}
+	//	}
+	//	// Check GetLastError for ERROR_IO_PENDING, if I/O is pending then
+	//	// use WaitForSingleObject() to determine when `o` is signaled, then check
+	//	// the result. If a character arrived then perform your ReadFile.
+	//}
+
+		*/
+
+	DWORD dwRead;
+	BOOL fWaitingOnRead = FALSE;
+
+	if (osReader.hEvent == NULL) 
+	{
+		printf("Creating a new reader Event\n");
+		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	}
+
+	if (!fWaitingOnRead) 
+	{
+		// Issue read operation.
+		if (!ReadFile(hPort, &byte, 1, &dwRead, &osReader)) 
+		{
+			if (GetLastError() != ERROR_IO_PENDING)
+				printf("IO Error");
+			else
+				fWaitingOnRead = TRUE;
+		}
+		else 
+		{
+			// read completed immediately
+			if (dwRead)
+				GotSerialChar(byte);
+		}
+	}
+
+	const DWORD READ_TIMEOUT = 1;
+
+	DWORD dwRes;
+
+	if (fWaitingOnRead) {
+		dwRes = WaitForSingleObject(osReader.hEvent, READ_TIMEOUT);
+		switch (dwRes)
+		{
+			// Read completed.
+		case WAIT_OBJECT_0:
+			if (!GetOverlappedResult(hPort, &osReader, &dwRead, FALSE))
+				printf("IO Error");
+			// Error in communications; report it.
+			else
+				// Read completed successfully.
+				GotSerialChar(byte);
+
+			//  Reset flag so that another opertion can be issued.
+			fWaitingOnRead = FALSE;
+			break;
+
+		//case WAIT_TIMEOUT:
+		//	break;
+
+		default:
+			printf("Event Error");
+			break;
+		}
+	}
+
+/*
+	//if (dwCommModemStatus & EV_RXCHAR) {
+	//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0); //read 1 
+	//	printf("Got: %c\n", byte);
+	//}
+
+	//COMSTAT comStat;
+	//DWORD   dwErrors;
+	//int bytesToRead = ClearCommError(hPort, &dwErrors, &comStat);
+
+	//if (bytesToRead)
+	//{
+	//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0);
+	//	printf("There are %i bytes to read", bytesToRead);
+	//	printf("Got: %c\n", byte);
+	//}
+	*/
 
 	if (byte == NULL)
 		return;
 
-	printf("Got: %c\n", byte);
+
 }
 
 void CloseSerial()
 {
 	CloseHandle(hPort);
+	CloseHandle(osReader.hEvent);
 }
+#endif
 
 // Main code
 int main(int, char**)
@@ -664,16 +867,21 @@ int main(int, char**)
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
 
-	if (SetupSerialPort("4"))
+
+
+	if (Serial::Setup('4', GotSerialChar))
 		printf("Serial Port opened successfuly");
+	else
+		printf("Error setting up the Serial Port");
 
 	// Main Loop
 	while (!done)
 	{
-		HandleSerial();
+		Serial::HandleInput();
+		//HandleSerial();
 		//if ((micros()) - lastFrameGui >= 1/*(1000000/79)*/)
 		// GUI Loop
-		if (micros() - lastFrameGui >= (1 / 75.f) * 1000000)
+		if (micros() - lastFrameGui >= (1 / 72.f) * 1000000)
 			if (GUI::DrawGui())
 				break;
 
@@ -683,6 +891,6 @@ int main(int, char**)
 		Sleep(1);
 	}
 
-	CloseSerial();
+	Serial::Close();
 	GUI::Destroy();
 }

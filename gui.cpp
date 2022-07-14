@@ -253,8 +253,8 @@ int GUI::DrawGui() noexcept
     ImGui::NewFrame();
 
 
-    ImGui::SetNextWindowSize({ (float)windowX - ImGui::GetStyle().WindowPadding.x * 2, (float)windowY / 2});
-    //ImGui::SetCursorPos({ 0,0 });
+    ImGui::SetNextWindowSize({ (float)windowX - ImGui::GetStyle().WindowPadding.x * 2, (float)windowY});
+    ImGui::SetNextWindowPos({ 0,0 });
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
     ImGui::PopStyleVar();
@@ -274,8 +274,7 @@ int GUI::DrawGui() noexcept
     g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     lastFrame = clock();
-    g_pSwapChain->Present(1, 0); // Present with vsync
-    //g_pSwapChain->Present(0, 0); // Present without vsync
+    g_pSwapChain->Present(0, 0);
     return 0;
 }
 

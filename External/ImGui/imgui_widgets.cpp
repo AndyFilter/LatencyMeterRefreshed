@@ -6380,6 +6380,9 @@ bool ImGui::Selectable(const char* label, bool selected, ImGuiSelectableFlags fl
     pos.y += window->DC.CurrLineTextBaseOffset;
     ItemSize(size, 0.0f);
 
+    if (itemRounding)
+    pos.x += style.FramePadding.x - 2;
+
     // Fill horizontal space
     // We don't support (size < 0.0f) in Selectable() because the ItemSpacing extension would make explicitly right-aligned sizes not visibly match other widgets.
     const bool span_all_columns = (flags & ImGuiSelectableFlags_SpanAllColumns) != 0;
@@ -6387,6 +6390,9 @@ bool ImGui::Selectable(const char* label, bool selected, ImGuiSelectableFlags fl
     const float max_x = span_all_columns ? window->ParentWorkRect.Max.x : window->WorkRect.Max.x;
     if (size_arg.x == 0.0f || (flags & ImGuiSelectableFlags_SpanAvailWidth))
         size.x = ImMax(label_size.x, max_x - min_x);
+
+    if (itemRounding)
+        size.x -= style.FramePadding.x - 2;
 
     // Text stays at the submission position, but bounding box may be extended on both sides
     const ImVec2 text_min = pos;
