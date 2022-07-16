@@ -50,9 +50,11 @@ const int fontIndex[4]{ 0, 2, 4, 5 };
 SerialStatus serialStatus = Status_Idle;
 
 int selectedPort = 0;
-std::vector<int> latencyTests;
+std::vector<LatencyReading> latencyTests;
 
 // -------
+
+void GotSerialChar(char c);
 
 /*
 TODO:
@@ -529,25 +531,59 @@ int OnGui()
 	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
 
 	//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
-	if (ImGui::BeginCombo("Select Port", Serial::availablePorts[selectedPort].c_str()))
+	ImGui::BeginGroup();
+	ImGui::PushItemWidth(80);
+	if (ImGui::BeginCombo("Port", Serial::availablePorts[selectedPort].c_str()))
 	{
 		for (int i = 0; i < Serial::availablePorts.size(); i++)
 		{
 			bool isSelected = (selectedPort == i);
 			if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
 			{
+				if (selectedPort != i)
+					Serial::Close();
 				selectedPort = i;
 			}
 		}
 		ImGui::EndCombo();
 	}
+	ImGui::PopItemWidth();
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("Refresh"))
+	{
+		Serial::FindAvailableSerialPorts();
+	}
+
+	ImGui::SameLine();
+	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 10, 0 });
+
+	ImGui::BeginDisabled(Serial::isConnected);
+	if (ImGui::ButtonEx("Connect"))
+	{
+		Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
+	}
+	ImGui::EndDisabled();
+
+	ImGui::SameLine();
+
+	ImGui::BeginDisabled(!Serial::isConnected);
+	if (ImGui::Button("Disconnect"))
+	{
+		Serial::Close();
+	}
+	ImGui::EndDisabled();
+
+	ImGui::EndGroup();
 
 	auto tableAvail = ImGui::GetContentRegionAvail();
 
-	if (ImGui::BeginTable("measurementsTable", 2, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { avail.x / 2, 200 }))
+	if (ImGui::BeginTable("measurementsTable", 3, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { avail.x / 2, 200 }))
 	{
 		ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 0.0f, 0);
-		ImGui::TableSetupColumn("Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
+		ImGui::TableSetupColumn("External Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
+		ImGui::TableSetupColumn("Internal Latency (us)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
 		ImGui::TableHeadersRow();
 
 		ImGuiListClipper clipper;
@@ -555,18 +591,26 @@ int OnGui()
 		while (clipper.Step())
 			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
 			{
-				int latency = latencyTests[i];
+				auto reading = latencyTests[i];
 
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
 				ImGui::Text("%i", i);
 				ImGui::TableNextColumn();
-				ImGui::Text("%i", latency);
+				ImGui::Text("%i", reading.timeExternal);
+				ImGui::TableNextColumn();
+				ImGui::Text("%i", reading.timeInternal / 1000);
+				if (ImGui::IsItemHovered())
+				{
+					// \xC2\xB5 is the microseconds character
+					ImGui::SetTooltip("%i\xC2\xB5s", reading.timeInternal);
+				}
 			}
 
 		ImGui::EndTable();
 	}
 
+	// Color change detection rectangle.
 	ImGui::RenderFrame(
 		{ 0 - style.WindowPadding.x, avail.y - 100 },
 		{ avail.x + style.WindowPadding.x + style.FramePadding.x, avail.y },
@@ -584,29 +628,39 @@ void GotSerialChar(char c)
 {
 	printf("Got: %c\n", c);
 
+	// 5 numbers should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
 	static BYTE resultBuffer[5]{};
 	static BYTE resultNum = 0;
+
+	static uint64_t internalStartTime = 0;
+	static uint64_t internalEndTime = 0;
 
 	switch (serialStatus)
 	{
 	case Status_Idle:
-		// Input (button press) detected
+		// Input (button press) detected (l for light)
 		if (c == 'l')
 		{
+			internalStartTime = micros();
 			printf("waiting for results\n");
 			serialStatus = Status_WaitingForResult;
 		}
 		break;
 	case Status_WaitingForResult:
+		internalEndTime = micros();
+		// e for end (end of the numbers)
 		if (c == 'e')
 		{
+			unsigned int internalTime = internalEndTime - internalStartTime;
 			int result = 0;
+			// Convert the byte array to int
 			for (int i = 0; i < resultNum; i++)
 			{
 				result += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
 			}
 			printf("Final result: %i\n", result);
-			latencyTests.push_back(result);
+			LatencyReading reading{ result, internalTime };
+			latencyTests.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
 			serialStatus = Status_Idle;
@@ -867,19 +921,18 @@ int main(int, char**)
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
 
+	Serial::FindAvailableSerialPorts();
 
-
-	if (Serial::Setup('4', GotSerialChar))
-		printf("Serial Port opened successfuly");
-	else
-		printf("Error setting up the Serial Port");
+	//if (Serial::Setup("COM4", GotSerialChar))
+	//	printf("Serial Port opened successfuly");
+	//else
+	//	printf("Error setting up the Serial Port");
 
 	// Main Loop
 	while (!done)
 	{
 		Serial::HandleInput();
-		//HandleSerial();
-		//if ((micros()) - lastFrameGui >= 1/*(1000000/79)*/)
+
 		// GUI Loop
 		if (micros() - lastFrameGui >= (1 / 72.f) * 1000000)
 			if (GUI::DrawGui())
@@ -887,7 +940,7 @@ int main(int, char**)
 
 		lastFrame = micros();
 
-		// Limit for eco-friendly purposes
+		// Limit FPS for eco-friendly purposes (Significantly affects the performance)
 		Sleep(1);
 	}
 

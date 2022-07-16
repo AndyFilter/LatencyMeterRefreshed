@@ -1,17 +1,21 @@
 #include <string>
 #include <Windows.h>
+#include <ostream>
 
 #include "serial.h"
 
+// Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
+constexpr DWORD BAUD_RATE = 19200;
+
 HANDLE hPort;
 DCB serialParams;
-OVERLAPPED osReader = { 0 };
+OVERLAPPED osReader{ 0 };
 
 static void (*OnCharReceived)(char c);
 
-void FindAvailableSerialPorts()
+void Serial::FindAvailableSerialPorts()
 {
-	std::string serialCom = "\\\\.\\COM";
+	Serial::availablePorts.clear();
 	
 	char lpTargetPath[MAX_PATH];
 	for (int i = 0; i < 255; i++) // checking ports from COM0 to COM255
@@ -26,14 +30,20 @@ void FindAvailableSerialPorts()
 	}
 }
 
-bool Serial::Setup(char COM_Number, void (*OnCharReceivedFunc)(char c))
+bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 {
-	OnCharReceived = OnCharReceivedFunc;
+	if(OnCharReceivedFunc != nullptr)
+		OnCharReceived = OnCharReceivedFunc;
 
 	FindAvailableSerialPorts();
 
-	std::string serialCom = "\\\\.\\COM";
-	serialCom += COM_Number;
+	if (isConnected)
+		Close();
+
+	osReader.hEvent = INVALID_HANDLE_VALUE;
+
+	std::string serialCom = "\\\\.\\";
+	serialCom += szPortName;
 	hPort = CreateFile(
 		serialCom.c_str(),
 		GENERIC_WRITE | GENERIC_READ,
@@ -50,7 +60,7 @@ bool Serial::Setup(char COM_Number, void (*OnCharReceivedFunc)(char c))
 	if (!GetCommState(hPort, &serialParams))
 		return false;
 
-	serialParams.BaudRate = 19200; // Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
+	serialParams.BaudRate = BAUD_RATE;
 	serialParams.Parity = NOPARITY;
 	serialParams.ByteSize = 8;
 	serialParams.StopBits = ONESTOPBIT;
@@ -65,24 +75,28 @@ bool Serial::Setup(char COM_Number, void (*OnCharReceivedFunc)(char c))
 	timeout.WriteTotalTimeoutConstant = 0;
 	timeout.WriteTotalTimeoutMultiplier = 0;
 
-	if (SetCommTimeouts(hPort, &timeout))
+	if (!SetCommTimeouts(hPort, &timeout))
 		return false;
 
-	//SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
+	PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
 
+	isConnected = true;
 	return true;
 }
 
 void Serial::HandleInput()
 {
+	if (!isConnected || !hPort)
+		return;
+
 	DWORD dwBytesTransferred;
 	DWORD dwCommModemStatus{};
-	BYTE byte = NULL;
+	BYTE byte[5]{};
 
 	DWORD dwRead;
 	BOOL fWaitingOnRead = FALSE;
 
-	if (osReader.hEvent == NULL)
+	if (osReader.hEvent == INVALID_HANDLE_VALUE)
 	{
 		printf("Creating a new reader Event\n");
 		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -90,11 +104,17 @@ void Serial::HandleInput()
 
 	if (!fWaitingOnRead)
 	{
-		// Issue read operation.
-		if (!ReadFile(hPort, &byte, 1, &dwRead, &osReader))
+		// Issue read operation. Try to read as many bytes as possible to empty the buffer and avoid any additional latency.
+		// The timeouts are all set to 0, so if there are less than 5 bytes to read it will just read all available,
+		// set "dwRead" to the value of bytes read and then process all the bytes separately. 
+		if (!ReadFile(hPort, &byte, 5, &dwRead, &osReader))
 		{
+			// This error most likely means that the device was disconnected, or something bad happened to it. It's better to close the serial either way.
 			if (GetLastError() != ERROR_IO_PENDING)
+			{
 				printf("IO Error");
+				Close();
+			}
 			else
 				fWaitingOnRead = TRUE;
 		}
@@ -102,7 +122,13 @@ void Serial::HandleInput()
 		{
 			// read completed immediately
 			if (dwRead)
-				OnCharReceived(byte);
+				if (OnCharReceived)
+				{
+					for (int i = 0; i < dwRead; i++) 
+					{
+						OnCharReceived(byte[i]);
+					}
+				}
 		}
 	}
 
@@ -145,6 +171,17 @@ void Serial::HandleInput()
 
 void Serial::Close()
 {
-	CloseHandle(hPort);
-	CloseHandle(osReader.hEvent);
+	if (isConnected)
+	{
+		// Clear the serial port Buffer
+		PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
+
+		CloseHandle(hPort);
+		CloseHandle(osReader.hEvent);
+
+		hPort = INVALID_HANDLE_VALUE;
+		osReader.hEvent = INVALID_HANDLE_VALUE;
+	}
+
+	isConnected = false;
 }

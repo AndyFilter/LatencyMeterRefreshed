@@ -4,9 +4,11 @@
 
 namespace Serial
 {
-	bool Setup(char COM_Number, void (*OnCharReceivedFunc)(char c));
+	bool Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c) = nullptr);
 	void HandleInput();
 	void Close();
+	void FindAvailableSerialPorts();
 
 	inline std::vector<std::string> availablePorts;
+	inline bool isConnected{false};
 }

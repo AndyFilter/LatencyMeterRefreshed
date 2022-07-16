@@ -6,3 +6,9 @@ enum SerialStatus
 	Status_WaitingForResult,
 	Status_Ping,
 };
+
+struct LatencyReading
+{
+	int timeExternal; // in millis
+	int timeInternal; // in micros
+};
