@@ -10,6 +10,7 @@
 #include "External/ImGui/imgui_internal.h"
 #include "structs.h"
 
+ImVec2 detectionRectSize{ 0, 200 };
 
 float lastFrameGui = 0.0f;
 float lastFrame = 0.0f;
@@ -52,6 +53,7 @@ SerialStatus serialStatus = Status_Idle;
 int selectedPort = 0;
 std::vector<LatencyReading> latencyTests;
 
+LatencyStats latencyStats{};
 // -------
 
 void GotSerialChar(char c);
@@ -521,61 +523,106 @@ int OnGui()
 		ImGui::End();
 	}
 
-	ImGui::Text("Time is: %ims", clock());
-	ImGui::Text("Time is: %luus", micros());
-
-	ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-
-	ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (CPU ONLY)", (micros() - lastFrame) / 1000, 1000000.0f / (micros() - lastFrame));
-
-	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
-
-	//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
-	ImGui::BeginGroup();
-	ImGui::PushItemWidth(80);
-	if (ImGui::BeginCombo("Port", Serial::availablePorts[selectedPort].c_str()))
+	if (ImGui::BeginChild("LeftChild", { avail.x / 2 - style.WindowPadding.x, avail.y - detectionRectSize.y + style.WindowPadding.y - 20 }, true))
 	{
-		for (int i = 0; i < Serial::availablePorts.size(); i++)
+
+		ImGui::Text("Time is: %ims", clock());
+		ImGui::Text("Time is: %luus", micros());
+
+		ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+		ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (CPU ONLY)", (micros() - lastFrame) / 1000, 1000000.0f / (micros() - lastFrame));
+
+		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
+
+		//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
+		ImGui::BeginGroup();
+		ImGui::PushItemWidth(80);
+		if (ImGui::BeginCombo("Port", Serial::availablePorts[selectedPort].c_str()))
 		{
-			bool isSelected = (selectedPort == i);
-			if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
+			for (int i = 0; i < Serial::availablePorts.size(); i++)
 			{
-				if (selectedPort != i)
-					Serial::Close();
-				selectedPort = i;
+				bool isSelected = (selectedPort == i);
+				if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
+				{
+					if (selectedPort != i)
+						Serial::Close();
+					selectedPort = i;
+				}
 			}
+			ImGui::EndCombo();
 		}
-		ImGui::EndCombo();
+		ImGui::PopItemWidth();
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Refresh"))
+		{
+			Serial::FindAvailableSerialPorts();
+		}
+
+		ImGui::SameLine();
+		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 10, 0 });
+
+		ImGui::BeginDisabled(Serial::isConnected);
+		if (ImGui::ButtonEx("Connect"))
+		{
+			Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
+		}
+		ImGui::EndDisabled();
+
+		ImGui::SameLine();
+
+		ImGui::BeginDisabled(!Serial::isConnected);
+		if (ImGui::Button("Disconnect"))
+		{
+			Serial::Close();
+		}
+		ImGui::EndDisabled();
+
+		ImGui::EndGroup();
+
+		ImGui::Spacing();
+
+		ImGui::PushFont(boldFont);
+
+		if (ImGui::BeginChild("MeasurementStats", { 0,ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y }, true))
+		{
+			ImGui::BeginGroup();
+			ImGui::Text("");
+			ImGui::Text("Highest");
+			ImGui::Text("Average");
+			ImGui::Text("Minimum");
+			ImGui::EndGroup();
+
+			ImGui::SameLine();
+
+			ImGui::BeginGroup();
+			ImGui::Text("Internal");
+			ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
+			ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000.f);
+			ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
+			ImGui::EndGroup();
+
+			ImGui::SameLine();
+
+			ImGui::BeginGroup();
+			ImGui::Text("External");
+			ImGui::Text("%u", latencyStats.externalLatency.highest);
+			ImGui::Text("%.2f", latencyStats.externalLatency.average);
+			ImGui::Text("%u", latencyStats.externalLatency.lowest);
+			ImGui::EndGroup();
+
+			ImGui::EndChild();
+		}
+
+		ImGui::PopFont();
+
+
+		ImGui::EndChild();
 	}
-	ImGui::PopItemWidth();
 
 	ImGui::SameLine();
-
-	if (ImGui::Button("Refresh"))
-	{
-		Serial::FindAvailableSerialPorts();
-	}
-
-	ImGui::SameLine();
-	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 10, 0 });
-
-	ImGui::BeginDisabled(Serial::isConnected);
-	if (ImGui::ButtonEx("Connect"))
-	{
-		Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
-	}
-	ImGui::EndDisabled();
-
-	ImGui::SameLine();
-
-	ImGui::BeginDisabled(!Serial::isConnected);
-	if (ImGui::Button("Disconnect"))
-	{
-		Serial::Close();
-	}
-	ImGui::EndDisabled();
-
-	ImGui::EndGroup();
 
 	auto tableAvail = ImGui::GetContentRegionAvail();
 
@@ -611,13 +658,16 @@ int OnGui()
 	}
 
 	// Color change detection rectangle.
+	detectionRectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
+	ImVec2 pos = { 0, avail.y - detectionRectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 };
+	ImRect bb{ pos, pos + detectionRectSize };
 	ImGui::RenderFrame(
-		{ 0 - style.WindowPadding.x, avail.y - 100 },
-		{ avail.x + style.WindowPadding.x + style.FramePadding.x, avail.y },
+		bb.Min,
+		bb.Max,
 		// Change the color to white to be detected by the light sensor
-		serialStatus == Status_WaitingForResult ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32( ImVec4(0.f, 0.f, 0.f, 1)),
+		serialStatus == Status_WaitingForResult ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1)),
 		false
-		);
+	);
 
 	lastFrameGui = micros();
 
@@ -635,6 +685,8 @@ void GotSerialChar(char c)
 	static uint64_t internalStartTime = 0;
 	static uint64_t internalEndTime = 0;
 
+	static uint64_t pingStartTime = 0;
+
 	switch (serialStatus)
 	{
 	case Status_Idle:
@@ -649,21 +701,45 @@ void GotSerialChar(char c)
 	case Status_WaitingForResult:
 		internalEndTime = micros();
 		// e for end (end of the numbers)
+		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added.
 		if (c == 'e')
 		{
+			// Because we are subtracting 2 similar unsigned longs longs, we dont need another unsigned long long, we just need and int
 			unsigned int internalTime = internalEndTime - internalStartTime;
-			int result = 0;
+			int externalTime = 0;
 			// Convert the byte array to int
 			for (int i = 0; i < resultNum; i++)
 			{
-				result += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
+				externalTime += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
 			}
-			printf("Final result: %i\n", result);
-			LatencyReading reading{ result, internalTime };
+
+			printf("Final result: %i\n", externalTime);
+			LatencyReading reading{ externalTime, internalTime };
+			size_t size = latencyTests.size();
+
+			// Update the stats
+			latencyStats.internalLatency.average = (latencyStats.internalLatency.average * size) / (size + 1.f) + (internalTime / (size + 1.f));
+			latencyStats.externalLatency.average = (latencyStats.externalLatency.average * size) / (size + 1.f) + (externalTime / (size + 1.f));
+
+			latencyStats.internalLatency.highest = internalTime > latencyStats.internalLatency.highest ? internalTime : latencyStats.internalLatency.highest;
+			latencyStats.externalLatency.highest = externalTime > latencyStats.externalLatency.highest ? externalTime : latencyStats.externalLatency.highest;
+
+			latencyStats.internalLatency.lowest = internalTime < latencyStats.internalLatency.lowest ? internalTime : latencyStats.internalLatency.lowest;
+			latencyStats.externalLatency.lowest = externalTime < latencyStats.externalLatency.lowest ? externalTime : latencyStats.externalLatency.lowest;
+
+			// If there are not measurements done yet set the minimum value to the current one
+			if (size == 0)
+			{
+				latencyStats.internalLatency.lowest = internalTime;
+				latencyStats.externalLatency.lowest = externalTime;
+			}
+
 			latencyTests.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
 			serialStatus = Status_Idle;
+			//WriteFile(Serial::hPort, "p", 1, nullptr, nullptr);
+			//pingStartTime = micros();
 		}
 		else
 		{
@@ -672,7 +748,12 @@ void GotSerialChar(char c)
 			resultNum += 1;
 		}
 		break;
-	case Status_Ping:
+	case Status_WaitingForPing:
+		if (c == 'p')
+		{
+			unsigned int pingTime = micros() - pingStartTime;
+			latencyTests[latencyTests.size() - 1].timePing = pingTime;
+		}
 		break;
 	default:
 		break;
@@ -777,23 +858,23 @@ void HandleSerial()
 	DWORD dwRead;
 	BOOL fWaitingOnRead = FALSE;
 
-	if (osReader.hEvent == NULL) 
+	if (osReader.hEvent == NULL)
 	{
 		printf("Creating a new reader Event\n");
 		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	}
 
-	if (!fWaitingOnRead) 
+	if (!fWaitingOnRead)
 	{
 		// Issue read operation.
-		if (!ReadFile(hPort, &byte, 1, &dwRead, &osReader)) 
+		if (!ReadFile(hPort, &byte, 1, &dwRead, &osReader))
 		{
 			if (GetLastError() != ERROR_IO_PENDING)
 				printf("IO Error");
 			else
 				fWaitingOnRead = TRUE;
 		}
-		else 
+		else
 		{
 			// read completed immediately
 			if (dwRead)
@@ -822,8 +903,8 @@ void HandleSerial()
 			fWaitingOnRead = FALSE;
 			break;
 
-		//case WAIT_TIMEOUT:
-		//	break;
+			//case WAIT_TIMEOUT:
+			//	break;
 
 		default:
 			printf("Event Error");
@@ -831,23 +912,23 @@ void HandleSerial()
 		}
 	}
 
-/*
-	//if (dwCommModemStatus & EV_RXCHAR) {
-	//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0); //read 1 
-	//	printf("Got: %c\n", byte);
-	//}
+	/*
+		//if (dwCommModemStatus & EV_RXCHAR) {
+		//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0); //read 1
+		//	printf("Got: %c\n", byte);
+		//}
 
-	//COMSTAT comStat;
-	//DWORD   dwErrors;
-	//int bytesToRead = ClearCommError(hPort, &dwErrors, &comStat);
+		//COMSTAT comStat;
+		//DWORD   dwErrors;
+		//int bytesToRead = ClearCommError(hPort, &dwErrors, &comStat);
 
-	//if (bytesToRead)
-	//{
-	//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0);
-	//	printf("There are %i bytes to read", bytesToRead);
-	//	printf("Got: %c\n", byte);
-	//}
-	*/
+		//if (bytesToRead)
+		//{
+		//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0);
+		//	printf("There are %i bytes to read", bytesToRead);
+		//	printf("Got: %c\n", byte);
+		//}
+		*/
 
 	if (byte == NULL)
 		return;
@@ -940,7 +1021,7 @@ int main(int, char**)
 
 		lastFrame = micros();
 
-		// Limit FPS for eco-friendly purposes (Significantly affects the performance)
+		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
 		Sleep(1);
 	}
 

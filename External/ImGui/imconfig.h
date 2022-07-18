@@ -87,6 +87,10 @@
         operator MyVec2() const { return MyVec2(x,y); }
 
         */
+#define IM_VEC2_CLASS_EXTRA \
+        constexpr ImVec2 operator+(const ImVec2 other) { return ImVec2(x+other.x, y+other.y); }
+
+
 #define IM_VEC4_CLASS_EXTRA                                                     \
         constexpr ImVec4& operator*=(const float f) { this->x *= f; this->y *= f; this->z *= f; this->w *= f; return *this; } \
         constexpr ImVec4 operator*(const float f) { return ImVec4(x*f, y*f, z*f, w*f); }

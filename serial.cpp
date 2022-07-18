@@ -7,7 +7,7 @@
 // Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
 constexpr DWORD BAUD_RATE = 19200;
 
-HANDLE hPort;
+//HANDLE hPort;
 DCB serialParams;
 OVERLAPPED osReader{ 0 };
 
