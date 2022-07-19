@@ -74,7 +74,7 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
 
     config.GlyphOffset.y = -1;
     io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
-    io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Bold.ttf", defaultFontSize, &config);
+    io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Black.ttf", defaultFontSize, &config);
     config.GlyphOffset.y = 0;
 
     //io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Gothicb.ttf", 14.f);

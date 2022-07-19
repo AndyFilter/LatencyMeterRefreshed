@@ -72,8 +72,8 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	timeout.ReadIntervalTimeout = MAXDWORD;
 	timeout.ReadTotalTimeoutConstant = 0;
 	timeout.ReadTotalTimeoutMultiplier = 0;
-	timeout.WriteTotalTimeoutConstant = 0;
-	timeout.WriteTotalTimeoutMultiplier = 0;
+	timeout.WriteTotalTimeoutConstant = 50;
+	timeout.WriteTotalTimeoutMultiplier = 10;
 
 	if (!SetCommTimeouts(hPort, &timeout))
 		return false;
@@ -101,6 +101,25 @@ void Serial::HandleInput()
 		printf("Creating a new reader Event\n");
 		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	}
+
+	//DWORD written;
+	//const char* szBuff{ "pppppppppppp" };
+	//if (!WriteFile(hPort, "p", 2, &written, NULL))
+	//{
+	//	char lastError[1024];
+	//	FormatMessage(
+	//		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+	//		NULL,
+	//		GetLastError(),
+	//		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+	//		lastError,
+	//		1024,
+	//		NULL);
+	//	printf(lastError);
+	//}
+	//else
+	//	printf("Sending 'p', written: %i\n", written);
+
 
 	if (!fWaitingOnRead)
 	{
@@ -167,6 +186,16 @@ void Serial::HandleInput()
 
 	if (byte == NULL)
 		return;
+}
+
+bool Serial::Write(const char* c, size_t size)
+{
+	DWORD dwRead;
+	if (!WriteFile(hPort, c, size, &dwRead, &osReader)) {
+		//handle error here
+		return false;
+	}
+	return true;
 }
 
 void Serial::Close()

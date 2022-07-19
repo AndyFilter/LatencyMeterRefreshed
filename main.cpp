@@ -198,9 +198,12 @@ ImFont* GetFontBold(int baseFontIndex)
 	std::string fontDebugName = (std::string)io.Fonts->Fonts[fontIndex[baseFontIndex]]->GetDebugName();
 	if (fontDebugName.find('-') == std::string::npos || fontDebugName.find(',') == std::string::npos)
 		return nullptr;
-	auto fontName = fontDebugName.substr(fontDebugName.find('-'), fontDebugName.find(','));
-	if (auto _boldFont = (io.Fonts->Fonts[fontIndex[baseFontIndex + 1]]); ((std::string)(_boldFont->GetDebugName())).find(fontName))
+	auto fontName = fontDebugName.substr(0, fontDebugName.find('-'));
+	auto _boldFont = (io.Fonts->Fonts[fontIndex[baseFontIndex]+1]);
+	auto boldName = ((std::string)(_boldFont->GetDebugName())).substr(0, fontDebugName.find('-'));
+	if (fontName == boldName)
 	{
+		printf("found bold font %s\n", _boldFont->GetDebugName());
 		return _boldFont;
 	}
 	return nullptr;
@@ -586,32 +589,90 @@ int OnGui()
 
 		ImGui::PushFont(boldFont);
 
-		if (ImGui::BeginChild("MeasurementStats", { 0,ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y }, true))
+		if (ImGui::BeginChild("MeasurementStats", { 0,ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y}, true))
 		{
-			ImGui::BeginGroup();
-			ImGui::Text("");
-			ImGui::Text("Highest");
-			ImGui::Text("Average");
-			ImGui::Text("Minimum");
-			ImGui::EndGroup();
+			/*
+			//ImGui::BeginGroup();
+			//ImGui::Text("");
+			//ImGui::Text("Highest");
+			//ImGui::Text("Average");
+			//ImGui::Text("Minimum");
+			//ImGui::EndGroup();
 
-			ImGui::SameLine();
+			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
 
-			ImGui::BeginGroup();
-			ImGui::Text("Internal");
-			ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
-			ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000.f);
-			ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
-			ImGui::EndGroup();
+			//ImGui::BeginGroup();
+			//ImGui::Text("Internal");
+			//ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
+			//ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000.f);
+			//ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
+			//ImGui::EndGroup();
 
-			ImGui::SameLine();
+			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
 
-			ImGui::BeginGroup();
-			ImGui::Text("External");
-			ImGui::Text("%u", latencyStats.externalLatency.highest);
-			ImGui::Text("%.2f", latencyStats.externalLatency.average);
-			ImGui::Text("%u", latencyStats.externalLatency.lowest);
-			ImGui::EndGroup();
+			//ImGui::BeginGroup();
+			//ImGui::Text("External");
+			//ImGui::Text("%u", latencyStats.externalLatency.highest);
+			//ImGui::Text("%.2f", latencyStats.externalLatency.average);
+			//ImGui::Text("%u", latencyStats.externalLatency.lowest);
+			//ImGui::EndGroup();
+
+			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
+
+			//ImGui::BeginGroup();
+			//ImGui::Text("Input");
+			//ImGui::Text("%u", latencyStats.inputLatency.highest / 1000);
+			//ImGui::Text("%.2f", latencyStats.inputLatency.average / 1000.f);
+			//ImGui::Text("%u", latencyStats.inputLatency.lowest / 1000);
+			//ImGui::EndGroup();
+			*/
+
+			if(ImGui::BeginTable("Latency Stats Table", 4, ImGuiTableFlags_BordersInner | ImGuiTableFlags_NoPadOuterX))
+			{
+				ImGui::TableNextRow();
+
+					ImGui::TableSetColumnIndex(1);
+					ImGui::Text("Internal");
+					ImGui::TableNextColumn();
+					ImGui::Text("External");
+					ImGui::TableNextColumn();
+					ImGui::Text("Input");
+
+					ImGui::TableNextRow();
+
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Highest");
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", latencyStats.externalLatency.highest);
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", latencyStats.inputLatency.highest / 1000);
+
+					ImGui::TableNextRow();
+
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Average");
+					ImGui::TableNextColumn();
+					ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000);
+					ImGui::TableNextColumn();
+					ImGui::Text("%.2f", latencyStats.externalLatency.average);
+					ImGui::TableNextColumn();
+					ImGui::Text("%.2f", latencyStats.inputLatency.average / 1000);
+
+					ImGui::TableNextRow();
+
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Lowest");
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", latencyStats.externalLatency.lowest);
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", latencyStats.inputLatency.lowest / 1000);
+
+				ImGui::EndTable();
+			}
 
 			ImGui::EndChild();
 		}
@@ -626,11 +687,12 @@ int OnGui()
 
 	auto tableAvail = ImGui::GetContentRegionAvail();
 
-	if (ImGui::BeginTable("measurementsTable", 3, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { avail.x / 2, 200 }))
+	if (ImGui::BeginTable("measurementsTable", 4, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { avail.x / 2, 200 }))
 	{
 		ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 0.0f, 0);
 		ImGui::TableSetupColumn("External Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
-		ImGui::TableSetupColumn("Internal Latency (us)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
+		ImGui::TableSetupColumn("Internal Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
+		ImGui::TableSetupColumn("Input Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
 		ImGui::TableHeadersRow();
 
 		ImGuiListClipper clipper;
@@ -651,6 +713,13 @@ int OnGui()
 				{
 					// \xC2\xB5 is the microseconds character
 					ImGui::SetTooltip("%i\xC2\xB5s", reading.timeInternal);
+				}
+				ImGui::TableNextColumn();
+				ImGui::Text("%i", reading.timePing / 1000);
+				if (ImGui::IsItemHovered())
+				{
+					// \xC2\xB5 is the microseconds character
+					ImGui::SetTooltip("%i\xC2\xB5s", reading.timePing);
 				}
 			}
 
@@ -737,9 +806,9 @@ void GotSerialChar(char c)
 			latencyTests.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
-			serialStatus = Status_Idle;
-			//WriteFile(Serial::hPort, "p", 1, nullptr, nullptr);
-			//pingStartTime = micros();
+			pingStartTime = micros();
+			Serial::Write("p", 1);
+			serialStatus = Status_WaitingForPing;
 		}
 		else
 		{
@@ -749,10 +818,23 @@ void GotSerialChar(char c)
 		}
 		break;
 	case Status_WaitingForPing:
-		if (c == 'p')
+		if (c == 'b')
 		{
 			unsigned int pingTime = micros() - pingStartTime;
 			latencyTests[latencyTests.size() - 1].timePing = pingTime;
+
+			size_t size = latencyTests.size() - 1;
+
+			latencyStats.inputLatency.average = (latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
+			latencyStats.inputLatency.highest = pingTime > latencyStats.inputLatency.highest ? pingTime : latencyStats.inputLatency.highest;
+			latencyStats.inputLatency.lowest = pingTime < latencyStats.inputLatency.lowest ? pingTime : latencyStats.inputLatency.lowest;
+
+			if (size == 0)
+			{
+				latencyStats.inputLatency.lowest = pingTime;
+			}
+
+			serialStatus = Status_Idle;
 		}
 		break;
 	default:
@@ -980,7 +1062,8 @@ int main(int, char**)
 			io.Fonts->Fonts[i]->Scale = fontSize;
 		}
 		io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
-		if (auto _boldFont = GetFontBold(fontIndex[selectedFont]); _boldFont != nullptr)
+		auto _boldFont = GetFontBold(selectedFont);
+		if (_boldFont != nullptr)
 		{
 			boldFont = _boldFont;
 			boldFontBak = boldFont;

@@ -25,4 +25,5 @@ struct LatencyStats
 {
 	LatencyParameters externalLatency;
 	LatencyParameters internalLatency;
+	LatencyParameters inputLatency;
 };

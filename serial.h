@@ -8,6 +8,7 @@ namespace Serial
 	void HandleInput();
 	void Close();
 	void FindAvailableSerialPorts();
+	bool Write(const char* c, size_t size);
 
 	inline std::vector<std::string> availablePorts;
 	inline bool isConnected{false};
