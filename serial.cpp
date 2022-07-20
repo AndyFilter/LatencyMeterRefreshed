@@ -6,6 +6,7 @@
 
 // Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
 constexpr DWORD BAUD_RATE = 19200;
+const byte BYTES_TO_READ = 5;
 
 //HANDLE hPort;
 DCB serialParams;
@@ -72,8 +73,8 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	timeout.ReadIntervalTimeout = MAXDWORD;
 	timeout.ReadTotalTimeoutConstant = 0;
 	timeout.ReadTotalTimeoutMultiplier = 0;
-	timeout.WriteTotalTimeoutConstant = 50;
-	timeout.WriteTotalTimeoutMultiplier = 10;
+	timeout.WriteTotalTimeoutConstant = 0;
+	timeout.WriteTotalTimeoutMultiplier = 0;
 
 	if (!SetCommTimeouts(hPort, &timeout))
 		return false;
@@ -91,7 +92,7 @@ void Serial::HandleInput()
 
 	DWORD dwBytesTransferred;
 	DWORD dwCommModemStatus{};
-	BYTE byte[5]{};
+	BYTE byte[BYTES_TO_READ]{};
 
 	DWORD dwRead;
 	BOOL fWaitingOnRead = FALSE;
@@ -126,7 +127,7 @@ void Serial::HandleInput()
 		// Issue read operation. Try to read as many bytes as possible to empty the buffer and avoid any additional latency.
 		// The timeouts are all set to 0, so if there are less than 5 bytes to read it will just read all available,
 		// set "dwRead" to the value of bytes read and then process all the bytes separately. 
-		if (!ReadFile(hPort, &byte, 5, &dwRead, &osReader))
+		if (!ReadFile(hPort, &byte, BYTES_TO_READ, &dwRead, &osReader))
 		{
 			// This error most likely means that the device was disconnected, or something bad happened to it. It's better to close the serial either way.
 			if (GetLastError() != ERROR_IO_PENDING)

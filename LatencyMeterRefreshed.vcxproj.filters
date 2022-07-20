@@ -45,6 +45,9 @@
     <ClCompile Include="serial.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="helperJson.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="External\ImGui\imconfig.h">
@@ -78,6 +81,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="serial.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="External\nlohmann\json.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="helperJson.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

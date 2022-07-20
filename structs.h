@@ -27,3 +27,21 @@ struct LatencyStats
 	LatencyParameters internalLatency;
 	LatencyParameters inputLatency;
 };
+
+struct StyleData
+{
+	float mainColor[4];
+	float mainColorBrightness;
+
+	float fontColor[4];
+	float fontColorBrightness;
+
+
+	int selectedFont;
+	float fontSize;
+};
+
+struct UserData
+{
+	StyleData style;
+};
