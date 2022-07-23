@@ -256,7 +256,7 @@ int GUI::DrawGui() noexcept
     ImGui::SetNextWindowSize({ (float)windowX - ImGui::GetStyle().WindowPadding.x * 2, (float)windowY});
     ImGui::SetNextWindowPos({ 0,0 });
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
-    ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+    ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar();
 
     // Call the GUI function in main file

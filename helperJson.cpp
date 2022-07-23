@@ -1,13 +1,15 @@
 #include <fstream>
+#include <filesystem>
 
 #include "helperJson.h"
 #include "External/nlohmann/json.hpp"
 
-using namespace nlohmann;
+using json = nlohmann::json;
 
 const char* configFileName{ "UserData.json" };
+const char* savesPath{ "Saves/" };
 
-void ToJson(json& j, StyleData& styleData)
+void to_json(json& j, const StyleData& styleData)
 {
 	j = json
 	{
@@ -20,10 +22,9 @@ void ToJson(json& j, StyleData& styleData)
 	};
 }
 
-void ToJson(json& j, UserData& userData)
+void to_json(json& j, const UserData& userData)
 {
-	json styleJson;
-	ToJson(styleJson, userData.style);
+	json styleJson = userData.style;
 
 	j = json
 	{
@@ -31,7 +32,17 @@ void ToJson(json& j, UserData& userData)
 	};
 }
 
-void FromJson(json& j, UserData& userData)
+void to_json(json& j, LatencyReading reading)
+{
+	j = json
+	{
+		{"timeExternal", reading.timeExternal },
+		{"timeInternal", reading.timeInternal },
+		{"timePing", reading.timePing },
+	};
+}
+
+void from_json(json& j, UserData& userData)
 {
 	auto &style = j.at("style");
 	style.at("mainColor").get_to(userData.style.mainColor);
@@ -42,13 +53,18 @@ void FromJson(json& j, UserData& userData)
 	style.at("selectedFont").get_to(userData.style.selectedFont);
 }
 
+void from_json(json& j, LatencyReading reading)
+{
+	j.at("timeExternal").get_to(reading.timeExternal);
+	j.at("timeInternal").get_to(reading.timeInternal);
+	j.at("timePing").get_to(reading.timePing);
+}
+
 void HelperJson::SaveUserData(UserData& userData)
 {
 	std::ofstream configFile(configFileName);
 
-	json j;
-
-	ToJson(j, userData);
+	json j = userData;
 
 	configFile << j.dump();
 
@@ -76,9 +92,30 @@ bool HelperJson::GetUserData(UserData& userData)
 	}
 
 	json data = json::parse(configFile);
-	FromJson(data, userData);
-	//userData.style.mainColor = data["mainColor"];
+	from_json(data, userData);
 	configFile.close();
 	return true;
 }
 
+void HelperJson::SaveLatencyTests(std::vector<LatencyReading> tests, char name[MEASUREMENTS_FILE_NAME_LENGTH])
+{
+	std::string fileName = savesPath + std::string(name) + std::string(".json");
+	if(!std::filesystem::is_directory(savesPath))
+		std::filesystem::create_directory(savesPath);
+	std::ofstream saveFile(fileName);
+
+	if (!saveFile.good())
+		return;
+
+	json j = tests;
+
+	saveFile << j.dump();
+
+	saveFile.close();
+}
+
+void HelperJson::GetLatencyTests(std::vector<LatencyReading>& tests)
+{
+	std::string fileName = savesPath + std::string(std::to_string(clock())) + std::string(".json");
+	std::ifstream saveFile(configFileName);
+}

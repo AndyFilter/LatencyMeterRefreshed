@@ -153,6 +153,7 @@
     <ClCompile Include="serial.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="constants.h" />
     <ClInclude Include="External\ImGui\imconfig.h" />
     <ClInclude Include="External\ImGui\imgui.h" />
     <ClInclude Include="External\ImGui\imgui_impl_dx11.h" />

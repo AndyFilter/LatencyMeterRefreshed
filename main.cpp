@@ -10,6 +10,8 @@
 #include "External/ImGui/imgui_internal.h"
 #include "structs.h"
 #include "helperJson.h"
+#include "constants.h"
+
 
 ImVec2 detectionRectSize{ 0, 200 };
 
@@ -19,6 +21,8 @@ unsigned int lastFrame = 0;
 // Frametime in microseconds
 float averageFrametime = 0;
 const unsigned int AVERAGE_FRAME_AMOUNT = 10000;
+unsigned int frames[AVERAGE_FRAME_AMOUNT]{ 0 };
+unsigned long long totalFrames = 0;
 
 // ---- Styling ----
 const int styleColorNum = 2;
@@ -72,6 +76,7 @@ TODO:
 - Add a way to change background color (?)
 - Add the functionality...
 - Saving measurement records to a json file.
+- Open a window to select which save file you want to open
 
 Learned:
 - VS debugger has no idea about what the type of the pointer is, even tho it's explicitly stated... (-2h)
@@ -84,7 +89,7 @@ uint64_t micros()
 	uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
 		std::chrono::high_resolution_clock::now().time_since_epoch())
 		.count();
-	static uint64_t start{ us };
+	static const uint64_t start{ us };
 	return us - start;
 }
 
@@ -153,13 +158,14 @@ void RevertStyle()
 // deprecated, moved to json based files.
 bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
 {
+	assert(false, "This function is deprecated, please use SaveCurrentStyleConfig");
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
 
 	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
 
 	std::ofstream configFile(filePath);
-	for (int i = 0; i < size; i++)
+	for (size_t i = 0; i < size; i++)
 	{
 		auto color = colors[i];
 		auto packedColor = ImGui::ColorConvertFloat4ToU32(*(ImVec4*)(color));
@@ -191,6 +197,8 @@ bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleCol
 // deprecated, moved to json based files.
 bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styleColorNum], int& fontIndex, float& fontSize)
 {
+	//This function is deprecated, please use SaveCurrentStyleConfig
+	assert(false);
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
 
@@ -353,7 +361,7 @@ bool HasStyleChanged()
 
 	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
 	// (Pointers point to different addresses even tho the values at these addresses are the same)
-	for (int column = 0; column < styleColorNum; column++)
+	for (int column = 0; column < 4; column++)
 	{
 		if (accentColor[column] != accentColorBak[column])
 		{
@@ -374,6 +382,91 @@ bool HasStyleChanged()
 		return true;
 	else
 		return false;
+}
+
+void RecalculateStats(bool recalculate_Average = false)
+{
+	size_t size = latencyTests.size();
+	if (size <= 0)
+		return;
+	if (recalculate_Average)
+	{
+		unsigned int extSum = 0, intSum = 0, inpSum = 0;
+
+		for (size_t i = 0; i < size; i++)
+		{
+			auto& test = latencyTests[i];
+
+			extSum += test.timeExternal;
+			intSum += test.timeInternal;
+			inpSum += test.timePing;
+
+			if (test.timeExternal > latencyStats.externalLatency.highest)
+			{
+				latencyStats.externalLatency.highest = test.timeExternal;
+			}
+			else if (test.timeExternal < latencyStats.externalLatency.lowest)
+			{
+				latencyStats.externalLatency.lowest = test.timeExternal;
+			}
+
+			if (test.timeInternal > latencyStats.internalLatency.highest)
+			{
+				latencyStats.internalLatency.highest = test.timeInternal;
+			}
+			else if (test.timeInternal < latencyStats.internalLatency.lowest)
+			{
+				latencyStats.internalLatency.lowest = test.timeInternal;
+			}
+
+			if (test.timePing > latencyStats.inputLatency.highest)
+			{
+				latencyStats.inputLatency.highest = test.timePing;
+			}
+			else if (test.timeExternal < latencyStats.inputLatency.lowest)
+			{
+				latencyStats.inputLatency.lowest = test.timePing;
+			}
+		}
+
+		latencyStats.externalLatency.average = static_cast<float>(extSum) / size;
+		latencyStats.internalLatency.average = static_cast<float>(intSum) / size;
+		latencyStats.inputLatency.average = static_cast<float>(inpSum) / size;
+	}
+	else
+	{
+		for (size_t i = 0; i < size; i++)
+		{
+			auto& test = latencyTests[i];
+
+			if (test.timeExternal > latencyStats.externalLatency.highest)
+			{
+				latencyStats.externalLatency.highest = test.timeExternal;
+			}
+			else if (test.timeExternal < latencyStats.externalLatency.lowest)
+			{
+				latencyStats.externalLatency.lowest = test.timeExternal;
+			}
+
+			if (test.timeInternal > latencyStats.internalLatency.highest)
+			{
+				latencyStats.internalLatency.highest = test.timeInternal;
+			}
+			else if (test.timeInternal < latencyStats.internalLatency.lowest)
+			{
+				latencyStats.internalLatency.lowest = test.timeInternal;
+			}
+
+			if (test.timePing > latencyStats.inputLatency.highest)
+			{
+				latencyStats.inputLatency.highest = test.timePing;
+			}
+			else if (test.timePing < latencyStats.inputLatency.lowest)
+			{
+				latencyStats.inputLatency.lowest = test.timePing;
+			}
+		}
+	}
 }
 
 // This code is very much unoptimized, but it has low optimization priority just because of how rarely this function is called
@@ -440,59 +533,119 @@ void RemoveMeasurement(size_t index)
 			//	latencyStats.inputLatency.lowest = test.timePing;
 			//}
 
-			if (test.timeExternal > latencyStats.externalLatency.highest)
-			{
-				latencyStats.externalLatency.highest = test.timeExternal;
-			}
-			else if (test.timeExternal < latencyStats.externalLatency.lowest)
-			{
-				latencyStats.externalLatency.lowest = test.timeExternal;
-			}
+			//if (test.timeExternal > latencyStats.externalLatency.highest)
+			//{
+			//	latencyStats.externalLatency.highest = test.timeExternal;
+			//}
+			//else if (test.timeExternal < latencyStats.externalLatency.lowest)
+			//{
+			//	latencyStats.externalLatency.lowest = test.timeExternal;
+			//}
 
-			if (test.timeInternal > latencyStats.internalLatency.highest)
-			{
-				latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < latencyStats.internalLatency.lowest)
-			{
-				latencyStats.internalLatency.lowest = test.timeInternal;
-			}
+			//if (test.timeInternal > latencyStats.internalLatency.highest)
+			//{
+			//	latencyStats.internalLatency.highest = test.timeInternal;
+			//}
+			//else if (test.timeInternal < latencyStats.internalLatency.lowest)
+			//{
+			//	latencyStats.internalLatency.lowest = test.timeInternal;
+			//}
 
-			if (test.timePing > latencyStats.inputLatency.highest)
-			{
-				latencyStats.inputLatency.highest = test.timePing;
-			}
-			else if (test.timeExternal < latencyStats.inputLatency.lowest)
-			{
-				latencyStats.inputLatency.lowest = test.timePing;
-			}
+			//if (test.timePing > latencyStats.inputLatency.highest)
+			//{
+			//	latencyStats.inputLatency.highest = test.timePing;
+			//}
+			//else if (test.timePing < latencyStats.inputLatency.lowest)
+			//{
+			//	latencyStats.inputLatency.lowest = test.timePing;
+			//}
 		}
+
+		latencyTests.erase(latencyTests.begin() + index);
+		RecalculateStats();
 	}
 	else
 	{
 		latencyStats = LatencyStats();
+		latencyTests.erase(latencyTests.begin() + index);
 	}
+}
 
-	latencyTests.erase(latencyTests.begin() + index);
+void SaveMeasurements(char name[MEASUREMENTS_FILE_NAME_LENGTH])
+{
+	HelperJson::SaveLatencyTests(latencyTests, name);
+}
+
+static int FilterValidPath(ImGuiInputTextCallbackData* data)
+{
+	if (std::find(std::begin(invalidPathCharacters), std::end(invalidPathCharacters), data->EventChar) != std::end(invalidPathCharacters))  return 1;
+	return 0;
 }
 
 // Not the best GUI solution, but it's simple, fast and gets the job done.
 int OnGui()
 {
+	ImGuiStyle& style = ImGui::GetStyle();
+
 	if (ImGui::BeginMenuBar())
 	{
+		static bool saveMeasurementsPopup = false;
 		if (ImGui::BeginMenu("File"))
 		{
 			if (ImGui::MenuItem("Open..", "Ctrl+O")) { /* Do stuff */ }
-			if (ImGui::MenuItem("Save", "Ctrl+S")) { /* Do stuff */ }
+			if (ImGui::MenuItem("Save", "Ctrl+S")) { saveMeasurementsPopup = true; }
 			if (ImGui::MenuItem("Settings", "")) { isSettingOpen = !isSettingOpen; }
-			if (ImGui::MenuItem("Close", "Ctrl+W")) { return 1; }
+			if (ImGui::MenuItem("Close", "")) { return 1; }
 			ImGui::EndMenu();
+		}
+
+		if (saveMeasurementsPopup)
+			ImGui::OpenPopup("Save measurements");
+
+		if (ImGui::BeginPopupModal("Save measurements", &saveMeasurementsPopup, ImGuiWindowFlags_NoResize))
+		{
+			auto modalAvail = ImGui::GetContentRegionAvail();
+			static char inputName[MEASUREMENTS_FILE_NAME_LENGTH]{"Name"};
+			for (size_t i = 0; i < MEASUREMENTS_FILE_NAME_LENGTH; i++)
+			{
+				char c = inputName[i];
+				if (std::find(invalidPathCharacters, invalidPathCharacters + 9, c))
+					inputName[i] = 0;
+			}
+			ImGui::InputText("Name", inputName, MEASUREMENTS_FILE_NAME_LENGTH, ImGuiInputTextFlags_CallbackCharFilter, FilterValidPath);
+			if (ImGui::Button("Save", { modalAvail.x , ImGui::GetFrameHeightWithSpacing() }))
+			{
+				SaveMeasurements(inputName);
+				ImGui::CloseCurrentPopup();
+				saveMeasurementsPopup = false;
+			}
+			ImGui::EndPopup();
+		}
+		// Draw FPS
+		{
+			auto menuBarAvail = ImGui::GetContentRegionAvail();
+
+			const float width = ImGui::CalcTextSize("FPS12345FPS    FPS123456789FPS").x;
+
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (menuBarAvail.x - width));
+			ImGui::BeginGroup();
+
+			ImGui::Text("FPS:");
+			ImGui::SameLine();
+			ImGui::Text("%.1f GUI", ImGui::GetIO().Framerate);
+			ImGui::SameLine();
+			ImGui::Text("%.1f CPU", 1000000.f / averageFrametime);
+			if (ImGui::IsItemHovered())
+			{
+				// The framerate is sometimes just too high to be properly displayed by the moving average and it's "small" buffer. So this should show average framerate over the entire program lifespan
+				ImGui::SetTooltip("Avg. framerate: %.1f", ( (float)totalFrames / micros()) * 1000000.f);
+			}
+
+			ImGui::EndGroup();
 		}
 		ImGui::EndMenuBar();
 	}
 
-	ImGuiStyle& style = ImGui::GetStyle();
 	const auto avail = ImGui::GetContentRegionAvail();
 	ImGuiIO& io = ImGui::GetIO();
 
@@ -524,6 +677,7 @@ int OnGui()
 
 				// These buttons don't really fit the window perfectly with some fonts, I might have to look into that.
 				ImGui::BeginGroup();
+
 				if (ImGui::Button("Save"))
 				{
 					SaveCurrentStyleConfig();
@@ -714,6 +868,8 @@ int OnGui()
 	if (ImGui::BeginChild("LeftChild", { avail.x / 2 - style.WindowPadding.x, avail.y - detectionRectSize.y + style.WindowPadding.y - 20 }, true))
 	{
 
+#ifdef DEBUG
+
 		ImGui::Text("Time is: %ims", clock());
 		ImGui::Text("Time is: %luus", micros());
 
@@ -723,7 +879,12 @@ int OnGui()
 
 		ImGui::Text("Application average %.3f \xC2\xB5s/frame (%.1f FPS) (CPU ONLY)", averageFrametime, 1000000.f / averageFrametime);
 
+		// The buffer contains just too many frames to display them on the screen (and displaying every 10th or so frame makes no sense). Also smoothing out the data set would hurt the performance too much
+		//ImGui::PlotLines("FPS Chart", [](void* data, int idx) { return sinf(float(frames[idx%10]) / 1000); }, frames, AVERAGE_FRAME_AMOUNT);
+
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
+
+#endif // DEBUG
 
 		//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
 		ImGui::BeginGroup();
@@ -979,7 +1140,7 @@ void GotSerialChar(char c)
 		{
 			// Because we are subtracting 2 similar unsigned longs longs, we dont need another unsigned long long, we just need and int
 			unsigned int internalTime = internalEndTime - internalStartTime;
-			int externalTime = 0;
+			unsigned int externalTime = 0;
 			// Convert the byte array to int
 			for (int i = 0; i < resultNum; i++)
 			{
@@ -1232,12 +1393,10 @@ void CloseSerial()
 // Main code
 int main(int, char**)
 {
-	micros();
 	GUI::Setup(OnGui);
 
 	static unsigned int frameIndex = 0;
 	static unsigned int frameSum = 0;
-	static unsigned int frames[AVERAGE_FRAME_AMOUNT]{0};
 
 	bool done = false;
 
@@ -1307,27 +1466,28 @@ int main(int, char**)
 	// Main Loop
 	while (!done)
 	{
-		Serial::HandleInput();
+			Serial::HandleInput();
 
-		// GUI Loop
-		if (micros() - lastFrameGui >= (1 / 72.f) * 1000000)
-			if (GUI::DrawGui())
-				break;
+			// GUI Loop
+			if (micros() - lastFrameGui >= (1 / 72.f) * 1000000)
+				if (GUI::DrawGui())
+					break;
 
-		unsigned int newFrame = micros() - lastFrame;
+			unsigned int newFrame = micros() - lastFrame;
 
-		// Average frametime calculation
-		frameSum -= frames[frameIndex];
-		frameSum += newFrame;
-		frames[frameIndex] = newFrame;
-		frameIndex = (frameIndex + 1) % AVERAGE_FRAME_AMOUNT;
+			// Average frametime calculation
+			frameSum -= frames[frameIndex];
+			frameSum += newFrame;
+			frames[frameIndex] = newFrame;
+			frameIndex = (frameIndex + 1) % AVERAGE_FRAME_AMOUNT;
 
-		averageFrametime = ((float)frameSum) / AVERAGE_FRAME_AMOUNT;
+			averageFrametime = ((float)frameSum) / AVERAGE_FRAME_AMOUNT;
 
-		lastFrame = micros();
+			totalFrames++;
+			lastFrame = micros();
 
-		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
-		//Sleep(1);
+			// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
+			//Sleep(1);
 	}
 
 	Serial::Close();

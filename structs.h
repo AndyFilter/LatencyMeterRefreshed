@@ -9,9 +9,9 @@ enum SerialStatus
 
 struct LatencyReading
 {
-	int timeExternal; // in millis
-	int timeInternal; // in micros
-	int timePing; // in micros
+	unsigned int timeExternal; // in millis
+	unsigned int timeInternal; // in micros
+	unsigned int timePing; // in micros
 };
 
 struct LatencyParameters
@@ -27,6 +27,7 @@ struct LatencyStats
 	LatencyParameters internalLatency;
 	LatencyParameters inputLatency;
 };
+
 
 struct StyleData
 {
