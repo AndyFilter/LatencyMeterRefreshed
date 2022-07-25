@@ -3,6 +3,7 @@
 #include <chrono>
 #include <fstream>
 #include <string.h>
+#include <tchar.h>
 
 #include "serial.h"
 #include "gui.h"
@@ -12,6 +13,8 @@
 #include "helperJson.h"
 #include "constants.h"
 
+
+HWND hwnd;
 
 ImVec2 detectionRectSize{ 0, 200 };
 
@@ -65,8 +68,14 @@ std::vector<LatencyReading> latencyTests;
 LatencyStats latencyStats{};
 // -------
 
+bool isSaved = true;
+char savePath[MAX_PATH]{ 0 };
+
+static ImGuiTableSortSpecs* sortSpec;
+
 // Forward declaration
 void GotSerialChar(char c);
+void SaveAsMeasurements();
 
 
 /*
@@ -74,9 +83,11 @@ TODO:
 
 + Add multiple fonts to chose from.
 - Add a way to change background color (?)
-- Add the functionality...
-- Saving measurement records to a json file.
++ Add the functionality...
++ Saving measurement records to a json file.
 - Open a window to select which save file you want to open
+- Better fullscreen implementation (ESCAPE to exit etc.)
+- Max Gui fps slider in settings
 
 Learned:
 - VS debugger has no idea about what the type of the pointer is, even tho it's explicitly stated... (-2h)
@@ -155,10 +166,67 @@ void RevertStyle()
 	io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
 }
 
+int LatencyCompare(const void* a, const void* b)
+{
+	LatencyReading* _a = (LatencyReading*)a;
+	LatencyReading* _b = (LatencyReading*)b;
+
+	int delta = 0;
+
+	switch (sortSpec->Specs->ColumnUserID)
+	{
+	case 0: delta = _a->index - _b->index;					break;
+	case 1: delta = _a->timeExternal - _b->timeExternal;	break;
+	case 2: delta = _a->timeInternal - _b->timeInternal;	break;
+	case 3: delta = _a->timePing - _b->timePing;			break;
+	case 4: delta = 0;										break;
+	//case 0:
+	//	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
+	//		return 1;
+	//	else
+	//		return -1;
+	//	break;
+	//case 1:
+	//	if (_a->timeExternal < _b->timeExternal)
+	//		return -1;
+	//	else if (_a->timeExternal == _b->timeExternal)
+	//		return 0;
+	//	else
+	//		return 1;
+	//	break;
+	//case 2:
+	//	if (_a->timeInternal < _b->timeInternal)
+	//		return -1;
+	//	else if (_a->timeInternal == _b->timeInternal)
+	//		return 0;
+	//	else
+	//		return 1;
+	//	break;
+	//case 3:
+	//	if (_a->timePing < _b->timePing)
+	//		return -1;
+	//	else if (_a->timePing == _b->timePing)
+	//		return 0;
+	//	else
+	//		return 1;
+	//	break;
+	}
+
+	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
+	{
+		return delta > 0 ? +1 : -1;
+	}
+	else
+	{
+		return delta > 0 ? -1 : +1;
+	}
+}
+
 // deprecated, moved to json based files.
 bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
 {
-	assert(false, "This function is deprecated, please use SaveCurrentStyleConfig");
+	//This function is deprecated, please use SaveCurrentStyleConfig
+	assert(false);
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
 
@@ -293,7 +361,7 @@ void ApplyCurrentStyle()
 {
 	auto& style = ImGui::GetStyle();
 
-	float brightnesses[styleColorNum] {accentBrightness, fontBrightness};
+	float brightnesses[styleColorNum]{ accentBrightness, fontBrightness };
 	float* colors[styleColorNum]{ accentColor, fontColor };
 
 	for (int i = 0; i < styleColorNum; i++)
@@ -341,7 +409,7 @@ ImFont* GetFontBold(int baseFontIndex)
 	if (fontDebugName.find('-') == std::string::npos || fontDebugName.find(',') == std::string::npos)
 		return nullptr;
 	auto fontName = fontDebugName.substr(0, fontDebugName.find('-'));
-	auto _boldFont = (io.Fonts->Fonts[fontIndex[baseFontIndex]+1]);
+	auto _boldFont = (io.Fonts->Fonts[fontIndex[baseFontIndex] + 1]);
 	auto boldName = ((std::string)(_boldFont->GetDebugName())).substr(0, fontDebugName.find('-'));
 	if (fontName == boldName)
 	{
@@ -397,6 +465,13 @@ void RecalculateStats(bool recalculate_Average = false)
 		{
 			auto& test = latencyTests[i];
 
+			if (i == 0)
+			{
+				latencyStats.externalLatency.lowest = test.timeExternal;
+				latencyStats.internalLatency.lowest = test.timeInternal;
+				latencyStats.inputLatency.lowest = test.timePing;
+			}
+
 			extSum += test.timeExternal;
 			intSum += test.timeInternal;
 			inpSum += test.timePing;
@@ -423,7 +498,7 @@ void RecalculateStats(bool recalculate_Average = false)
 			{
 				latencyStats.inputLatency.highest = test.timePing;
 			}
-			else if (test.timeExternal < latencyStats.inputLatency.lowest)
+			else if (test.timePing < latencyStats.inputLatency.lowest)
 			{
 				latencyStats.inputLatency.lowest = test.timePing;
 			}
@@ -438,6 +513,13 @@ void RecalculateStats(bool recalculate_Average = false)
 		for (size_t i = 0; i < size; i++)
 		{
 			auto& test = latencyTests[i];
+
+			if (i == 0)
+			{
+				latencyStats.externalLatency.lowest = test.timeExternal;
+				latencyStats.internalLatency.lowest = test.timeInternal;
+				latencyStats.inputLatency.lowest = test.timePing;
+			}
 
 			if (test.timeExternal > latencyStats.externalLatency.highest)
 			{
@@ -571,9 +653,68 @@ void RemoveMeasurement(size_t index)
 	}
 }
 
-void SaveMeasurements(char name[MEASUREMENTS_FILE_NAME_LENGTH])
+void SaveMeasurements()
 {
-	HelperJson::SaveLatencyTests(latencyTests, name);
+	if (std::strlen(savePath) == 0)
+		return SaveAsMeasurements();
+
+	HelperJson::SaveLatencyTests(latencyTests, savePath);
+	isSaved = true;
+}
+
+void SaveAsMeasurements()
+{
+	char filename[MAX_PATH]{ "name" };
+	const char szExt[] = "json\0";
+
+	OPENFILENAME ofn = { sizeof(OPENFILENAME) };
+
+	ofn.hwndOwner = hwnd;
+	ofn.lpstrFile = filename;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
+	ofn.Flags = OFN_DONTADDTORECENT | OFN_OVERWRITEPROMPT;
+
+	if (GetSaveFileName(&ofn))
+	{
+		HelperJson::SaveLatencyTests(latencyTests, filename);
+		strncpy_s(savePath, filename, MAX_PATH);
+		isSaved = true;
+	}
+}
+
+void OpenMeasurements()
+{
+	char filename[MAX_PATH];
+	const char szExt[] = "json\0";
+
+	ZeroMemory(filename, sizeof(filename));
+	OPENFILENAME ofn = { sizeof(OPENFILENAME) };
+
+	ofn.hwndOwner = hwnd;
+	ofn.lpstrFile = filename;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
+	ofn.Flags = OFN_DONTADDTORECENT;
+
+	if (GetOpenFileName(&ofn))
+	{
+		HelperJson::GetLatencyTests(latencyTests, filename);
+
+		if (latencyTests.empty())
+			return;
+
+		//// I don't know if there is any correct way of sorting items on begining, but this works.
+		//auto specs = ImGuiTableColumnSortSpecs();
+		//specs.SortDirection = ImGuiSortDirection_Ascending;
+		//specs.ColumnUserID = 0;
+		//auto sorts = ImGuiTableSortSpecs();
+		//sorts.Specs = &specs;
+		//sortSpec = &sorts;
+		//qsort(&latencyTests[0], (size_t)latencyTests.size(), sizeof(latencyTests[0]), LatencyCompare);
+
+		RecalculateStats(true);
+	}
 }
 
 static int FilterValidPath(ImGuiInputTextCallbackData* data)
@@ -589,38 +730,39 @@ int OnGui()
 
 	if (ImGui::BeginMenuBar())
 	{
-		static bool saveMeasurementsPopup = false;
+		//static bool saveMeasurementsPopup = false;
 		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::MenuItem("Open..", "Ctrl+O")) { /* Do stuff */ }
-			if (ImGui::MenuItem("Save", "Ctrl+S")) { saveMeasurementsPopup = true; }
+			if (ImGui::MenuItem("Open", "Ctrl+O")) { OpenMeasurements(); }
+			if (ImGui::MenuItem("Save", "Ctrl+S")) { SaveMeasurements(); }
+			if (ImGui::MenuItem("Save as", "")) { SaveAsMeasurements(); }
 			if (ImGui::MenuItem("Settings", "")) { isSettingOpen = !isSettingOpen; }
 			if (ImGui::MenuItem("Close", "")) { return 1; }
 			ImGui::EndMenu();
 		}
 
-		if (saveMeasurementsPopup)
-			ImGui::OpenPopup("Save measurements");
+		//if (saveMeasurementsPopup)
+		//	ImGui::OpenPopup("Save measurements");
 
-		if (ImGui::BeginPopupModal("Save measurements", &saveMeasurementsPopup, ImGuiWindowFlags_NoResize))
-		{
-			auto modalAvail = ImGui::GetContentRegionAvail();
-			static char inputName[MEASUREMENTS_FILE_NAME_LENGTH]{"Name"};
-			for (size_t i = 0; i < MEASUREMENTS_FILE_NAME_LENGTH; i++)
-			{
-				char c = inputName[i];
-				if (std::find(invalidPathCharacters, invalidPathCharacters + 9, c))
-					inputName[i] = 0;
-			}
-			ImGui::InputText("Name", inputName, MEASUREMENTS_FILE_NAME_LENGTH, ImGuiInputTextFlags_CallbackCharFilter, FilterValidPath);
-			if (ImGui::Button("Save", { modalAvail.x , ImGui::GetFrameHeightWithSpacing() }))
-			{
-				SaveMeasurements(inputName);
-				ImGui::CloseCurrentPopup();
-				saveMeasurementsPopup = false;
-			}
-			ImGui::EndPopup();
-		}
+		//if (ImGui::BeginPopupModal("Save measurements", &saveMeasurementsPopup, ImGuiWindowFlags_NoResize))
+		//{
+		//	auto modalAvail = ImGui::GetContentRegionAvail();
+		//	static char inputName[MEASUREMENTS_FILE_NAME_LENGTH]{"Name"};
+		//	for (size_t i = 0; i < MEASUREMENTS_FILE_NAME_LENGTH; i++)
+		//	{
+		//		char c = inputName[i];
+		//		if (std::find(invalidPathCharacters, invalidPathCharacters + 9, c))
+		//			inputName[i] = 0;
+		//	}
+		//	ImGui::InputText("Name", inputName, MEASUREMENTS_FILE_NAME_LENGTH, ImGuiInputTextFlags_CallbackCharFilter, FilterValidPath);
+		//	if (ImGui::Button("Save", { modalAvail.x , ImGui::GetFrameHeightWithSpacing() }))
+		//	{
+		//		SaveMeasurements(inputName);
+		//		ImGui::CloseCurrentPopup();
+		//		saveMeasurementsPopup = false;
+		//	}
+		//	ImGui::EndPopup();
+		//}
 		// Draw FPS
 		{
 			auto menuBarAvail = ImGui::GetContentRegionAvail();
@@ -634,11 +776,18 @@ int OnGui()
 			ImGui::SameLine();
 			ImGui::Text("%.1f GUI", ImGui::GetIO().Framerate);
 			ImGui::SameLine();
+			// Right click total frames to reset it
 			ImGui::Text("%.1f CPU", 1000000.f / averageFrametime);
+			static uint64_t totalFramerateStartTime{ micros() };
 			if (ImGui::IsItemHovered())
 			{
 				// The framerate is sometimes just too high to be properly displayed by the moving average and it's "small" buffer. So this should show average framerate over the entire program lifespan
-				ImGui::SetTooltip("Avg. framerate: %.1f", ( (float)totalFrames / micros()) * 1000000.f);
+				ImGui::SetTooltip("Avg. framerate: %.1f", ((float)totalFrames / (micros() - totalFramerateStartTime)) * 1000000.f);
+			}
+			if (ImGui::IsItemClicked(1))
+			{
+				totalFramerateStartTime = micros();
+				totalFrames = 0;
 			}
 
 			ImGui::EndGroup();
@@ -649,12 +798,65 @@ int OnGui()
 	const auto avail = ImGui::GetContentRegionAvail();
 	ImGuiIO& io = ImGui::GetIO();
 
+	// Handle Shortcuts
+	unsigned short pressedKeys[ImGuiKey_COUNT]{};
+	size_t addedKeys = 0;
+
+	ZeroMemory(pressedKeys, ImGuiKey_COUNT);
+
+	for (ImGuiKey key = 0; key < ImGuiKey_COUNT; key++)
+	{
+		bool isPressed = ImGui::IsKeyPressed(key);
+
+		if ((key >= 641 && key <= 643) || (key >= 527 && key <= 533))
+			continue;
+
+		if (ImGui::IsLegacyKey(key))
+			continue;
+
+		if (isPressed) {
+			auto name = ImGui::GetKeyName(key);
+			auto s = io.KeyMap;
+			pressedKeys[addedKeys++] = key;
+			//if (keyName == 's' && io.KeyCtrl && !io.KeyShift && !io.KeyAlt)
+			//	SaveMeasurements();
+		}
+	}
+
+	if (addedKeys == 1)
+	{
+		const char* name = ImGui::GetKeyName(pressedKeys[0]);
+		if (io.KeyCtrl)
+		{
+			io.ClearInputKeys();
+			if (name[0] == 'S')
+			{
+				SaveMeasurements();
+			}
+			else if (name[0] == 'O')
+			{
+				OpenMeasurements();
+			}
+		}
+	}
+
+	// following way might be better, but it requires a use of some weird values like 0xF for CTRL+S
+	//if (io.InputQueueCharacters.size() == 1)
+	//{
+	//	ImWchar c = io.InputQueueCharacters[0];
+	//	if (((c > ' ' && c <= 255) ? (char)c : '?' == 's') && io.KeyCtrl)
+	//	{
+	//		SaveMeasurements();
+	//	}
+
+	//}
+
 	if (isSettingOpen)
 	{
 		ImGui::SetNextWindowSize({ 480.0f, 480.0f });
 
 		bool wasLastSettingsOpen = isSettingOpen;
-		if (ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse ))
+		if (ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse))
 		{
 			// On Settings Window Closed:
 			if (wasLastSettingsOpen && !isSettingOpen && HasStyleChanged())
@@ -937,7 +1139,7 @@ int OnGui()
 
 		ImGui::PushFont(boldFont);
 
-		if (ImGui::BeginChild("MeasurementStats", { 0,ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y}, true))
+		if (ImGui::BeginChild("MeasurementStats", { 0,ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y }, true))
 		{
 			/*
 			//ImGui::BeginGroup();
@@ -975,49 +1177,49 @@ int OnGui()
 			//ImGui::EndGroup();
 			*/
 
-			if(ImGui::BeginTable("Latency Stats Table", 4, ImGuiTableFlags_BordersInner | ImGuiTableFlags_NoPadOuterX))
+			if (ImGui::BeginTable("Latency Stats Table", 4, ImGuiTableFlags_BordersInner | ImGuiTableFlags_NoPadOuterX))
 			{
 				ImGui::TableNextRow();
 
-					ImGui::TableSetColumnIndex(1);
-					ImGui::Text("Internal");
-					ImGui::TableNextColumn();
-					ImGui::Text("External");
-					ImGui::TableNextColumn();
-					ImGui::Text("Input");
+				ImGui::TableSetColumnIndex(1);
+				ImGui::Text("Internal");
+				ImGui::TableNextColumn();
+				ImGui::Text("External");
+				ImGui::TableNextColumn();
+				ImGui::Text("Input");
 
-					ImGui::TableNextRow();
+				ImGui::TableNextRow();
 
-					ImGui::TableSetColumnIndex(0);
-					ImGui::Text("Highest");
-					ImGui::TableNextColumn();
-					ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
-					ImGui::TableNextColumn();
-					ImGui::Text("%u", latencyStats.externalLatency.highest);
-					ImGui::TableNextColumn();
-					ImGui::Text("%u", latencyStats.inputLatency.highest / 1000);
+				ImGui::TableSetColumnIndex(0);
+				ImGui::Text("Highest");
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", latencyStats.externalLatency.highest);
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", latencyStats.inputLatency.highest / 1000);
 
-					ImGui::TableNextRow();
+				ImGui::TableNextRow();
 
-					ImGui::TableSetColumnIndex(0);
-					ImGui::Text("Average");
-					ImGui::TableNextColumn();
-					ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000);
-					ImGui::TableNextColumn();
-					ImGui::Text("%.2f", latencyStats.externalLatency.average);
-					ImGui::TableNextColumn();
-					ImGui::Text("%.2f", latencyStats.inputLatency.average / 1000);
+				ImGui::TableSetColumnIndex(0);
+				ImGui::Text("Average");
+				ImGui::TableNextColumn();
+				ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000);
+				ImGui::TableNextColumn();
+				ImGui::Text("%.2f", latencyStats.externalLatency.average);
+				ImGui::TableNextColumn();
+				ImGui::Text("%.2f", latencyStats.inputLatency.average / 1000);
 
-					ImGui::TableNextRow();
+				ImGui::TableNextRow();
 
-					ImGui::TableSetColumnIndex(0);
-					ImGui::Text("Lowest");
-					ImGui::TableNextColumn();
-					ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
-					ImGui::TableNextColumn();
-					ImGui::Text("%u", latencyStats.externalLatency.lowest);
-					ImGui::TableNextColumn();
-					ImGui::Text("%u", latencyStats.inputLatency.lowest / 1000);
+				ImGui::TableSetColumnIndex(0);
+				ImGui::Text("Lowest");
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", latencyStats.externalLatency.lowest);
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", latencyStats.inputLatency.lowest / 1000);
 
 				ImGui::EndTable();
 			}
@@ -1041,11 +1243,21 @@ int OnGui()
 		ImGui::TableSetupColumn("External Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
 		ImGui::TableSetupColumn("Internal Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
 		ImGui::TableSetupColumn("Input Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 3);
-		ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 0.0f, 4);
+		ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 0.0f, 4);
 		ImGui::TableHeadersRow();
 
 		// Copy of the original vector has to be used because there is a possibility that some of the items will be removed from it. In which case changes will be updated on the next frame
 		std::vector<LatencyReading> _latencyTestsCopy = latencyTests;
+
+		if (ImGuiTableSortSpecs* sorts_specs = ImGui::TableGetSortSpecs())
+			if (sorts_specs->SpecsDirty)
+			{
+				sortSpec = sorts_specs;
+				if (latencyTests.size() > 1)
+					qsort(&latencyTests[0], (size_t)latencyTests.size(), sizeof(latencyTests[0]), LatencyCompare);
+				sortSpec = NULL;
+				sorts_specs->SpecsDirty = false;
+			}
 
 		ImGuiListClipper clipper;
 		clipper.Begin(_latencyTestsCopy.size());
@@ -1054,12 +1266,12 @@ int OnGui()
 			{
 				auto& reading = _latencyTestsCopy[i];
 
-				ImGui::PushID(i+100);
+				ImGui::PushID(i + 100);
 
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
 
-				ImGui::Text("%i", i);
+				ImGui::Text("%i", reading.index);
 				ImGui::TableNextColumn();
 
 				ImGui::Text("%i", reading.timeExternal);
@@ -1092,9 +1304,10 @@ int OnGui()
 	}
 
 	// Color change detection rectangle.
-	detectionRectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
-	ImVec2 pos = { 0, avail.y - detectionRectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 };
-	ImRect bb{ pos, pos + detectionRectSize };
+	ImVec2 rectSize{0, detectionRectSize.y};
+	rectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
+	ImVec2 pos = { 0, avail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 };
+	ImRect bb{ pos, pos + rectSize };
 	ImGui::RenderFrame(
 		bb.Min,
 		bb.Max,
@@ -1168,6 +1381,7 @@ void GotSerialChar(char c)
 				latencyStats.externalLatency.lowest = externalTime;
 			}
 
+			reading.index = size;
 			latencyTests.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
@@ -1200,6 +1414,7 @@ void GotSerialChar(char c)
 			}
 
 			serialStatus = Status_Idle;
+			isSaved = false;
 		}
 		break;
 	default:
@@ -1393,7 +1608,7 @@ void CloseSerial()
 // Main code
 int main(int, char**)
 {
-	GUI::Setup(OnGui);
+	hwnd = GUI::Setup(OnGui);
 
 	static unsigned int frameIndex = 0;
 	static unsigned int frameSum = 0;
@@ -1403,7 +1618,7 @@ int main(int, char**)
 	//float colors[styleColorNum][4];
 	//float brightnesses[styleColorNum] = { accentBrightness, fontBrightness };
 	//if (ReadStyleConfig(colors, brightnesses, selectedFont, fontSize))
-	if(LoadCurrentUserConfig())
+	if (LoadCurrentUserConfig())
 	{
 		ApplyCurrentStyle();
 		//ApplyStyle(colors, brightnesses);
@@ -1466,28 +1681,28 @@ int main(int, char**)
 	// Main Loop
 	while (!done)
 	{
-			Serial::HandleInput();
+		Serial::HandleInput();
 
-			// GUI Loop
-			if (micros() - lastFrameGui >= (1 / 72.f) * 1000000)
-				if (GUI::DrawGui())
-					break;
+		// GUI Loop
+		if (micros() - lastFrameGui >= (1.f / 72) * 1000000)
+			if (GUI::DrawGui())
+				break;
 
-			unsigned int newFrame = micros() - lastFrame;
+		unsigned int newFrame = micros() - lastFrame;
 
-			// Average frametime calculation
-			frameSum -= frames[frameIndex];
-			frameSum += newFrame;
-			frames[frameIndex] = newFrame;
-			frameIndex = (frameIndex + 1) % AVERAGE_FRAME_AMOUNT;
+		// Average frametime calculation
+		frameSum -= frames[frameIndex];
+		frameSum += newFrame;
+		frames[frameIndex] = newFrame;
+		frameIndex = (frameIndex + 1) % AVERAGE_FRAME_AMOUNT;
 
-			averageFrametime = ((float)frameSum) / AVERAGE_FRAME_AMOUNT;
+		averageFrametime = ((float)frameSum) / AVERAGE_FRAME_AMOUNT;
 
-			totalFrames++;
-			lastFrame = micros();
+		totalFrames++;
+		lastFrame = micros();
 
-			// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
-			//Sleep(1);
+		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
+		//Sleep(1);
 	}
 
 	Serial::Close();

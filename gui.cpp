@@ -30,22 +30,22 @@ static HWND hwnd;
 static int (*mainGuiFunc)();
 
 // Setup code, takes a function to run when doing GUI
-void GUI::Setup(int (*OnGuiFunc)() = NULL)
+HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
 {
     if (OnGuiFunc != NULL)
         mainGuiFunc = OnGuiFunc;
     // Create application window
     //ImGui_ImplWin32_EnableDpiAwareness();
-    wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("LatencyMeterRefreshed"), NULL };
+    wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("Latency Meter Refreshed"), NULL };
     ::RegisterClassEx(&wc);
-    hwnd = ::CreateWindow(wc.lpszClassName, _T("Latency Meter Refreshed"), (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX), 100, 100, windowX, windowY, NULL, NULL, wc.hInstance, NULL);
+    hwnd = ::CreateWindow(wc.lpszClassName, _T("Latency Meter Refreshed"), (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), 100, 100, windowX, windowY, NULL, NULL, wc.hInstance, NULL);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(hwnd))
     {
         CleanupDeviceD3D();
         ::UnregisterClass(wc.lpszClassName, wc.hInstance);
-        return;
+        return NULL;
     }
 
     // Show the window
@@ -225,13 +225,11 @@ void GUI::Setup(int (*OnGuiFunc)() = NULL)
     bool showMainWindow = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-    return;
+    return hwnd;
 }
-long lastFrame = 0;
+
 int GUI::DrawGui() noexcept
 {
-    //if ((clock() - lastFrame) < 11)
-    //    return 0;
     static bool showMainWindow = true;
     static ImVec4 clear_color = ImVec4(0.55f, 0.45f, 0.60f, 1.00f);
     static bool done = false;
@@ -252,8 +250,9 @@ int GUI::DrawGui() noexcept
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
-
-    ImGui::SetNextWindowSize({ (float)windowX - ImGui::GetStyle().WindowPadding.x * 2, (float)windowY});
+    auto size = ImGui::GetIO().DisplaySize;
+    //size = ImGui::GetWindowSize();
+    ImGui::SetNextWindowSize({ (float)size.x, (float)size.y});
     ImGui::SetNextWindowPos({ 0,0 });
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -273,7 +272,6 @@ int GUI::DrawGui() noexcept
     g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
     g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    lastFrame = clock();
     g_pSwapChain->Present(0, 0);
     return 0;
 }

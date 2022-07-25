@@ -12,6 +12,7 @@ struct LatencyReading
 	unsigned int timeExternal; // in millis
 	unsigned int timeInternal; // in micros
 	unsigned int timePing; // in micros
+	unsigned int index;
 };
 
 struct LatencyParameters

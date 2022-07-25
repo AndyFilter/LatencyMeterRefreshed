@@ -2,7 +2,7 @@
 
 namespace GUI
 {
-	void Setup(int (*OnGuiFunc)());
+	HWND Setup(int (*OnGuiFunc)());
 	int DrawGui() noexcept;
 	void Destroy() noexcept;
 }

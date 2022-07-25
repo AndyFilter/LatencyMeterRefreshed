@@ -9,6 +9,14 @@ using json = nlohmann::json;
 const char* configFileName{ "UserData.json" };
 const char* savesPath{ "Saves/" };
 
+int LatencyIndexSort(const void* a, const void* b)
+{
+	LatencyReading* _a = (LatencyReading*)a;
+	LatencyReading* _b = (LatencyReading*)b;
+
+	return (int)_a->index - (int)_b->index > 0 ? +1 : -1;
+}
+
 void to_json(json& j, const StyleData& styleData)
 {
 	j = json
@@ -39,6 +47,7 @@ void to_json(json& j, LatencyReading reading)
 		{"timeExternal", reading.timeExternal },
 		{"timeInternal", reading.timeInternal },
 		{"timePing", reading.timePing },
+		{"index", reading.index },
 	};
 }
 
@@ -53,11 +62,12 @@ void from_json(json& j, UserData& userData)
 	style.at("selectedFont").get_to(userData.style.selectedFont);
 }
 
-void from_json(json& j, LatencyReading reading)
+void from_json(const json& j, LatencyReading& reading)
 {
 	j.at("timeExternal").get_to(reading.timeExternal);
 	j.at("timeInternal").get_to(reading.timeInternal);
 	j.at("timePing").get_to(reading.timePing);
+	j.at("index").get_to(reading.index);
 }
 
 void HelperJson::SaveUserData(UserData& userData)
@@ -97,12 +107,14 @@ bool HelperJson::GetUserData(UserData& userData)
 	return true;
 }
 
-void HelperJson::SaveLatencyTests(std::vector<LatencyReading> tests, char name[MEASUREMENTS_FILE_NAME_LENGTH])
+void HelperJson::SaveLatencyTests(std::vector<LatencyReading> tests, char path[_MAX_PATH])
 {
-	std::string fileName = savesPath + std::string(name) + std::string(".json");
-	if(!std::filesystem::is_directory(savesPath))
-		std::filesystem::create_directory(savesPath);
-	std::ofstream saveFile(fileName);
+	//std::string fileName = savesPath + std::string(name) + std::string(".json");
+
+	// Sort array by index before saving
+	qsort(&tests[0], (size_t)tests.size(), sizeof(tests[0]), LatencyIndexSort);
+
+	std::ofstream saveFile(path);
 
 	if (!saveFile.good())
 		return;
@@ -114,8 +126,17 @@ void HelperJson::SaveLatencyTests(std::vector<LatencyReading> tests, char name[M
 	saveFile.close();
 }
 
-void HelperJson::GetLatencyTests(std::vector<LatencyReading>& tests)
+void HelperJson::GetLatencyTests(std::vector<LatencyReading>& tests, char path[_MAX_PATH])
 {
-	std::string fileName = savesPath + std::string(std::to_string(clock())) + std::string(".json");
-	std::ifstream saveFile(configFileName);
+	//std::string fileName = savesPath + std::string(name) + std::string(".json");
+	using s = std::vector<LatencyReading>;
+	std::ifstream saveFile(path);
+
+	if (!saveFile.good())
+		return;
+
+	json j = json::parse(saveFile);
+	j.get_to(tests);
+
+	saveFile.close();
 }
