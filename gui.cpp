@@ -1,16 +1,17 @@
 #include "External/ImGui/imgui.h"
 #include "External/ImGui/imgui_impl_win32.h"
 #include "External/ImGui/imgui_impl_dx11.h"
-#include <d3d11.h>
 #include <tchar.h>
 #include <iostream>
 
 #include "gui.h"
+#include "resource.h"
+
+using namespace GUI;
 
 // Data
 static ID3D11Device* g_pd3dDevice = NULL;
 static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
-static IDXGISwapChain* g_pSwapChain = NULL;
 static ID3D11RenderTargetView* g_mainRenderTargetView = NULL;
 
 // Forward declarations of helper functions
@@ -37,6 +38,8 @@ HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
     // Create application window
     //ImGui_ImplWin32_EnableDpiAwareness();
     wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("Latency Meter Refreshed"), NULL };
+    wc.hIcon = LoadIcon(wc.hInstance, MAKEINTRESOURCE(IDI_ICON1));
+    wc.hIconSm = LoadIcon(wc.hInstance, MAKEINTRESOURCE(IDI_ICON1));
     ::RegisterClassEx(&wc);
     hwnd = ::CreateWindow(wc.lpszClassName, _T("Latency Meter Refreshed"), (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), 100, 100, windowX, windowY, NULL, NULL, wc.hInstance, NULL);
 
@@ -219,11 +222,17 @@ HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
     colors[ImGuiCol_NavHighlight] = ImVec4(0.69f, 1, 1, 1); //ImGui::ColorConvertU32ToFloat4((GRAY900 & 0x00FFFFFF) | 0x0A000000);
 
 
-    // Our state
-    //bool show_demo_window = true;
-    //bool show_another_window = false;
-    bool showMainWindow = true;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    // Handle switching to fullscreen on my own
+    IDXGIDevice* pDXGIDevice = nullptr;
+    auto hr = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void**)&pDXGIDevice);
+
+    IDXGIAdapter* pDXGIAdapter = nullptr;
+    hr = pDXGIDevice->GetAdapter(&pDXGIAdapter);
+
+    IDXGIFactory* pIDXGIFactory = nullptr;
+    pDXGIAdapter->GetParent(__uuidof(IDXGIFactory), (void**)&pIDXGIFactory);
+
+    pIDXGIFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
 
     return hwnd;
 }
@@ -264,13 +273,15 @@ int GUI::DrawGui() noexcept
 
     ImGui::End();
 
+#ifdef _DEBUG 
     ImGui::ShowDemoWindow();
+#endif // DEBUG
 
     // Rendering
     ImGui::Render();
-    const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+    //const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
     g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
-    g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+    //g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     g_pSwapChain->Present(0, 0);
     return 0;
@@ -313,6 +324,7 @@ bool CreateDeviceD3D(HWND hWnd)
     //createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
     D3D_FEATURE_LEVEL featureLevel;
     const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+
     if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
         return false;
 

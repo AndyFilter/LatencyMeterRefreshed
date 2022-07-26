@@ -103,6 +103,7 @@
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <PreprocessToFile>false</PreprocessToFile>
       <AdditionalIncludeDirectories>$(DXSDK_DIR)Include</AdditionalIncludeDirectories>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -174,8 +175,16 @@
     <ClInclude Include="helperJson.h" />
     <ClInclude Include="External\nlohmann\json.hpp" />
     <ClInclude Include="gui.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="serial.h" />
     <ClInclude Include="structs.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="LatencyMeterRefreshed.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\Media\LatencyMeterIco.ico" />
+    <Image Include="..\..\Media\LatencyMeterIco.png" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

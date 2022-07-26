@@ -30,13 +30,23 @@ void to_json(json& j, const StyleData& styleData)
 	};
 }
 
+void to_json(json& j, const PerformanceData& performanceData)
+{
+	j = json
+	{
+		{"lockGuiFps", performanceData.lockGuiFps},
+		{"guiLockedFps", performanceData.guiLockedFps},
+	};
+}
+
 void to_json(json& j, const UserData& userData)
 {
-	json styleJson = userData.style;
+	//json styleJson = userData.style;
 
 	j = json
 	{
-		{ "style", styleJson }
+		{ "style", userData.style },
+		{ "performance", userData.performance }
 	};
 }
 
@@ -51,15 +61,33 @@ void to_json(json& j, LatencyReading reading)
 	};
 }
 
-void from_json(json& j, UserData& userData)
+void from_json(const json& j, PerformanceData& performanceData)
 {
-	auto &style = j.at("style");
-	style.at("mainColor").get_to(userData.style.mainColor);
-	style.at("fontColor").get_to(userData.style.fontColor);
-	style.at("mainColorBrightness").get_to(userData.style.mainColorBrightness);
-	style.at("fontColorBrightness").get_to(userData.style.fontColorBrightness);
-	style.at("fontSize").get_to(userData.style.fontSize);
-	style.at("selectedFont").get_to(userData.style.selectedFont);
+	j.at("guiLockedFps").get_to(performanceData.guiLockedFps);
+	j.at("lockGuiFps").get_to(performanceData.lockGuiFps);
+}
+
+void from_json(const json& j, StyleData& styleData)
+{
+	j.at("mainColor").get_to(styleData.mainColor);
+	j.at("fontColor").get_to(styleData.fontColor);
+	j.at("mainColorBrightness").get_to(styleData.mainColorBrightness);
+	j.at("fontColorBrightness").get_to(styleData.fontColorBrightness);
+	j.at("fontSize").get_to(styleData.fontSize);
+	j.at("selectedFont").get_to(styleData.selectedFont);
+}
+
+void from_json(const json& j, UserData& userData)
+{
+	j.at("style").get_to(userData.style);
+	j.at("performance").get_to(userData.performance);
+	//auto &style = j.at("style");
+	//style.at("mainColor").get_to(userData.style.mainColor);
+	//style.at("fontColor").get_to(userData.style.fontColor);
+	//style.at("mainColorBrightness").get_to(userData.style.mainColorBrightness);
+	//style.at("fontColorBrightness").get_to(userData.style.fontColorBrightness);
+	//style.at("fontSize").get_to(userData.style.fontSize);
+	//style.at("selectedFont").get_to(userData.style.selectedFont);
 }
 
 void from_json(const json& j, LatencyReading& reading)

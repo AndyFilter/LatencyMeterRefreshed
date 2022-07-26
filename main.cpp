@@ -6,13 +6,12 @@
 #include <tchar.h>
 
 #include "serial.h"
-#include "gui.h"
 #include "External/ImGui/imgui.h"
 #include "External/ImGui/imgui_internal.h"
 #include "structs.h"
 #include "helperJson.h"
 #include "constants.h"
-
+#include "gui.h"
 
 HWND hwnd;
 
@@ -28,6 +27,7 @@ unsigned int frames[AVERAGE_FRAME_AMOUNT]{ 0 };
 unsigned long long totalFrames = 0;
 
 // ---- Styling ----
+
 const int styleColorNum = 2;
 const unsigned int colorSize = 16;
 
@@ -56,7 +56,20 @@ ImFont* boldFontBak;
 
 const char* fonts[4]{ "Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console" };
 const int fontIndex[4]{ 0, 2, 4, 5 };
-// -------
+
+// --------
+
+
+// ---- Performance ----
+
+int guiLockedFps;
+bool lockGuiFps = true;
+
+int guiLockedFpsBak;
+bool lockGuiFpsBak = true;
+
+// --------
+
 
 // ---- Functionality ----
 
@@ -66,12 +79,17 @@ int selectedPort = 0;
 std::vector<LatencyReading> latencyTests;
 
 LatencyStats latencyStats{};
-// -------
+// --------
+
 
 bool isSaved = true;
 char savePath[MAX_PATH]{ 0 };
 
 static ImGuiTableSortSpecs* sortSpec;
+
+bool isFullscreen = false;
+bool fullscreenModeOpenPopup = false;
+bool fullscreenModeClosePopup = false;
 
 // Forward declaration
 void GotSerialChar(char c);
@@ -85,12 +103,13 @@ TODO:
 - Add a way to change background color (?)
 + Add the functionality...
 + Saving measurement records to a json file.
-- Open a window to select which save file you want to open
-- Better fullscreen implementation (ESCAPE to exit etc.)
-- Max Gui fps slider in settings
++ Open a window to select which save file you want to open
++ Better fullscreen implementation (ESCAPE to exit etc.)
++ Max Gui fps slider in settings
+- Load the font in earlier selected size
+- Movable black Square for color detection (?) Check for any additional latency this might involve
+- Clear / Reset button
 
-Learned:
-- VS debugger has no idea about what the type of the pointer is, even tho it's explicitly stated... (-2h)
 */
 
 bool isSettingOpen = false;
@@ -145,7 +164,7 @@ void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum
 	}
 }
 
-void RevertStyle()
+void RevertConfig()
 {
 	std::copy(accentColorBak, accentColorBak + 4, accentColor);
 	std::copy(fontColorBak, fontColorBak + 4, fontColor);
@@ -164,6 +183,9 @@ void RevertStyle()
 		io.Fonts->Fonts[i]->Scale = fontSize;
 	}
 	io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
+
+	lockGuiFps = lockGuiFpsBak;
+	guiLockedFps = guiLockedFpsBak;
 }
 
 int LatencyCompare(const void* a, const void* b)
@@ -180,36 +202,36 @@ int LatencyCompare(const void* a, const void* b)
 	case 2: delta = _a->timeInternal - _b->timeInternal;	break;
 	case 3: delta = _a->timePing - _b->timePing;			break;
 	case 4: delta = 0;										break;
-	//case 0:
-	//	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
-	//		return 1;
-	//	else
-	//		return -1;
-	//	break;
-	//case 1:
-	//	if (_a->timeExternal < _b->timeExternal)
-	//		return -1;
-	//	else if (_a->timeExternal == _b->timeExternal)
-	//		return 0;
-	//	else
-	//		return 1;
-	//	break;
-	//case 2:
-	//	if (_a->timeInternal < _b->timeInternal)
-	//		return -1;
-	//	else if (_a->timeInternal == _b->timeInternal)
-	//		return 0;
-	//	else
-	//		return 1;
-	//	break;
-	//case 3:
-	//	if (_a->timePing < _b->timePing)
-	//		return -1;
-	//	else if (_a->timePing == _b->timePing)
-	//		return 0;
-	//	else
-	//		return 1;
-	//	break;
+		//case 0:
+		//	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
+		//		return 1;
+		//	else
+		//		return -1;
+		//	break;
+		//case 1:
+		//	if (_a->timeExternal < _b->timeExternal)
+		//		return -1;
+		//	else if (_a->timeExternal == _b->timeExternal)
+		//		return 0;
+		//	else
+		//		return 1;
+		//	break;
+		//case 2:
+		//	if (_a->timeInternal < _b->timeInternal)
+		//		return -1;
+		//	else if (_a->timeInternal == _b->timeInternal)
+		//		return 0;
+		//	else
+		//		return 1;
+		//	break;
+		//case 3:
+		//	if (_a->timePing < _b->timePing)
+		//		return -1;
+		//	else if (_a->timePing == _b->timePing)
+		//		return 0;
+		//	else
+		//		return 1;
+		//	break;
 	}
 
 	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
@@ -225,7 +247,7 @@ int LatencyCompare(const void* a, const void* b)
 // deprecated, moved to json based files.
 bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
 {
-	//This function is deprecated, please use SaveCurrentStyleConfig
+	//This function is deprecated, please use SaveCurrentUserConfig
 	assert(false);
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
@@ -265,7 +287,7 @@ bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleCol
 // deprecated, moved to json based files.
 bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styleColorNum], int& fontIndex, float& fontSize)
 {
-	//This function is deprecated, please use SaveCurrentStyleConfig
+	//This function is deprecated, please use SaveCurrentUserConfig
 	assert(false);
 	char buffer[MAX_PATH];
 	::GetCurrentDirectory(MAX_PATH, buffer);
@@ -317,15 +339,18 @@ bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styl
 }
 
 // Does the calcualtions and copying for you
-void SaveCurrentStyleConfig()
+void SaveCurrentUserConfig()
 {
-	StyleData style = StyleData();
-	std::copy(accentColor, accentColor + 4, style.mainColor);
-	std::copy(fontColor, fontColor + 4, style.fontColor);
-	style.mainColorBrightness = accentBrightness;
-	style.fontColorBrightness = fontBrightness;
-	style.fontSize = fontSize;
-	style.selectedFont = selectedFont;
+	UserData* userData = new UserData();
+
+	StyleData* style = &userData->style;
+
+	std::copy(accentColor, accentColor + 4, style->mainColor);
+	std::copy(fontColor, fontColor + 4, style->fontColor);
+	style->mainColorBrightness = accentBrightness;
+	style->fontColorBrightness = fontBrightness;
+	style->fontSize = fontSize;
+	style->selectedFont = selectedFont;
 
 	std::copy(accentColor, accentColor + 4, accentColorBak);
 	accentBrightnessBak = accentBrightness;
@@ -337,7 +362,15 @@ void SaveCurrentStyleConfig()
 	fontSizeBak = fontSize;
 	boldFontBak = boldFont;
 
-	HelperJson::SaveUserStyle(style);
+	PerformanceData* performance = &userData->performance;
+
+	performance->guiLockedFps = guiLockedFps;
+	performance->lockGuiFps = lockGuiFps;
+
+	guiLockedFpsBak = guiLockedFps;
+	lockGuiFpsBak = lockGuiFps;
+
+	HelperJson::SaveUserData(*userData);
 }
 
 bool LoadCurrentUserConfig()
@@ -353,6 +386,9 @@ bool LoadCurrentUserConfig()
 	fontBrightness = style.fontColorBrightness;
 	fontSize = style.fontSize;
 	selectedFont = style.selectedFont;
+
+	lockGuiFps = userData.performance.lockGuiFps;
+	guiLockedFps = userData.performance.guiLockedFps;
 
 	return true;
 }
@@ -421,10 +457,11 @@ ImFont* GetFontBold(int baseFontIndex)
 
 // This could also be done just using a single global variable like "hasStyleChanged", because ImGui elements like FloatSlider, ColorEdit4 return a value (true) if the value has changed.
 // But this method would not work as expected when user reverts back the changes or sets the variable to it's original value
-bool HasStyleChanged()
+bool HasConfigChanged()
 {
 	bool brightnesses = accentBrightness == accentBrightnessBak && fontBrightness == fontBrightnessBak;
 	bool font = selectedFont == selectedFontBak && fontSize == fontSizeBak;
+	bool fps = guiLockedFps == guiLockedFpsBak && lockGuiFps == lockGuiFpsBak;
 	bool colors{ false };
 
 	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
@@ -446,7 +483,7 @@ bool HasStyleChanged()
 		colors = true;
 	}
 
-	if (!colors || !brightnesses || !font)
+	if (!colors || !brightnesses || !font || !fps)
 		return true;
 	else
 		return false;
@@ -664,6 +701,15 @@ void SaveMeasurements()
 
 void SaveAsMeasurements()
 {
+	bool wasFullscreen = isFullscreen;
+	if (isFullscreen)
+	{
+		GUI::g_pSwapChain->SetFullscreenState(false, nullptr);
+		isFullscreen = false;
+		fullscreenModeOpenPopup = false;
+		fullscreenModeClosePopup = false;
+	}
+
 	char filename[MAX_PATH]{ "name" };
 	const char szExt[] = "json\0";
 
@@ -681,17 +727,32 @@ void SaveAsMeasurements()
 		strncpy_s(savePath, filename, MAX_PATH);
 		isSaved = true;
 	}
+
+	if (wasFullscreen)
+	{
+		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
+		isFullscreen = true;
+	}
 }
 
 void OpenMeasurements()
 {
+	bool wasFullscreen = isFullscreen;
+	if (isFullscreen)
+	{
+		GUI::g_pSwapChain->SetFullscreenState(false, nullptr);
+		isFullscreen = false;
+		fullscreenModeOpenPopup = false;
+		fullscreenModeClosePopup = false;
+	}
+
 	char filename[MAX_PATH];
 	const char szExt[] = "json\0";
 
 	ZeroMemory(filename, sizeof(filename));
 	OPENFILENAME ofn = { sizeof(OPENFILENAME) };
 
-	ofn.hwndOwner = hwnd;
+	//ofn.hwndOwner = hwnd;
 	ofn.lpstrFile = filename;
 	ofn.nMaxFile = MAX_PATH;
 	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
@@ -704,16 +765,14 @@ void OpenMeasurements()
 		if (latencyTests.empty())
 			return;
 
-		//// I don't know if there is any correct way of sorting items on begining, but this works.
-		//auto specs = ImGuiTableColumnSortSpecs();
-		//specs.SortDirection = ImGuiSortDirection_Ascending;
-		//specs.ColumnUserID = 0;
-		//auto sorts = ImGuiTableSortSpecs();
-		//sorts.Specs = &specs;
-		//sortSpec = &sorts;
-		//qsort(&latencyTests[0], (size_t)latencyTests.size(), sizeof(latencyTests[0]), LatencyCompare);
-
 		RecalculateStats(true);
+	}
+
+	// Add this to preferences or smth
+	if (wasFullscreen)
+	{
+		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
+		isFullscreen = true;
 	}
 }
 
@@ -721,6 +780,12 @@ static int FilterValidPath(ImGuiInputTextCallbackData* data)
 {
 	if (std::find(std::begin(invalidPathCharacters), std::end(invalidPathCharacters), data->EventChar) != std::end(invalidPathCharacters))  return 1;
 	return 0;
+}
+
+void ClearData()
+{
+	latencyTests.clear();
+	latencyStats = LatencyStats();
 }
 
 // Not the best GUI solution, but it's simple, fast and gets the job done.
@@ -779,11 +844,8 @@ int OnGui()
 			// Right click total frames to reset it
 			ImGui::Text("%.1f CPU", 1000000.f / averageFrametime);
 			static uint64_t totalFramerateStartTime{ micros() };
-			if (ImGui::IsItemHovered())
-			{
-				// The framerate is sometimes just too high to be properly displayed by the moving average and it's "small" buffer. So this should show average framerate over the entire program lifespan
-				ImGui::SetTooltip("Avg. framerate: %.1f", ((float)totalFrames / (micros() - totalFramerateStartTime)) * 1000000.f);
-			}
+			// The framerate is sometimes just too high to be properly displayed by the moving average and it's "small" buffer. So this should show average framerate over the entire program lifespan
+			TOOLTIP("Avg. framerate: %.1f", ((float)totalFrames / (micros() - totalFramerateStartTime)) * 1000000.f);
 			if (ImGui::IsItemClicked(1))
 			{
 				totalFramerateStartTime = micros();
@@ -799,7 +861,7 @@ int OnGui()
 	ImGuiIO& io = ImGui::GetIO();
 
 	// Handle Shortcuts
-	unsigned short pressedKeys[ImGuiKey_COUNT]{};
+	ImGuiKey pressedKeys[ImGuiKey_COUNT]{};
 	size_t addedKeys = 0;
 
 	ZeroMemory(pressedKeys, ImGuiKey_COUNT);
@@ -808,6 +870,7 @@ int OnGui()
 	{
 		bool isPressed = ImGui::IsKeyPressed(key);
 
+		// Shift, ctrl and alt
 		if ((key >= 641 && key <= 643) || (key >= 527 && key <= 533))
 			continue;
 
@@ -822,6 +885,8 @@ int OnGui()
 			//	SaveMeasurements();
 		}
 	}
+
+	static bool wasEscapeUp{ true };
 
 	if (addedKeys == 1)
 	{
@@ -838,7 +903,108 @@ int OnGui()
 				OpenMeasurements();
 			}
 		}
+		else if (io.KeyAlt)
+		{
+			io.ClearInputKeys();
+
+			// Enter
+			if (pressedKeys[0] == 615 || pressedKeys[0] == 525)
+			{
+				BOOL isFS;
+				GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
+				isFullscreen = isFS;
+				if (!isFullscreen && !fullscreenModeOpenPopup)
+				{
+					ImGui::OpenPopup("Enter Fullscreen mode?");
+					fullscreenModeOpenPopup = true;
+				}
+				else if(!fullscreenModeClosePopup && !fullscreenModeOpenPopup)
+				{
+					ImGui::OpenPopup("Exit Fullscreen mode?");
+					fullscreenModeClosePopup = true;
+				}
+			}
+		}
+		else if (!io.KeyShift)
+		{
+			BOOL isFS;
+			GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
+			isFullscreen = isFS;
+			if (pressedKeys[0] == ImGuiKey_Escape && isFullscreen && !fullscreenModeClosePopup && wasEscapeUp)
+			{
+				wasEscapeUp = false;
+				ImGui::OpenPopup("Exit Fullscreen mode?");
+				fullscreenModeClosePopup = true;
+				wasEscapeUp = false;
+			}
+
+		}
 	}
+
+	if (ImGui::BeginPopupModal("Enter Fullscreen mode?", &fullscreenModeOpenPopup, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::Text("Are you sure you want to enter Fullscreen mode?");
+		TOOLTIP("Press Escape to Exit");
+		ImGui::SeparatorSpace(0, { 0, 10 });
+		if (ImGui::Button("Yes") || IS_ONLY_ENTER_PRESSED)
+		{
+			// I'm pretty sure I should also resize the swapchain buffer to use the new resolution, but maybe later
+			if (GUI::g_pSwapChain->SetFullscreenState(true, nullptr) == S_OK)
+				isFullscreen = true;
+			else
+				isFullscreen = false;
+
+			ImGui::CloseCurrentPopup();
+			fullscreenModeOpenPopup = false;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("No") || IS_ONLY_ESCAPE_PRESSED)
+		{
+			ImGui::CloseCurrentPopup();
+			fullscreenModeOpenPopup = false;
+		}
+		ImGui::EndPopup();
+	}
+
+	if (ImGui::BeginPopupModal("Exit Fullscreen mode?", &fullscreenModeClosePopup, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::Text("Are you sure you want to exit Fullscreen mode?");
+		ImGui::SeparatorSpace(0, { 0, 10 });
+
+		// ImGui doesn't yet support focusing a button
+
+		//ImGui::PushAllowKeyboardFocus(true);
+		//ImGui::PushID("ExitFSYes");
+		//ImGui::SetKeyboardFocusHere();
+		//bool isYesDown = ImGui::Button("Yes");
+		//ImGui::PopID();
+		////ImGui::SetKeyboardFocusHere(-1);
+		//auto curWindow = ImGui::GetCurrentWindow();
+		//ImGui::PopAllowKeyboardFocus();
+		//ImGui::SetFocusID(curWindow->GetID("ExitFSYes"), curWindow);
+
+		if (ImGui::Button("Yes") || IS_ONLY_ENTER_PRESSED)
+		{
+			if (GUI::g_pSwapChain->SetFullscreenState(false, nullptr) == S_OK)
+				isFullscreen = false;
+			else
+				isFullscreen = true;
+
+			ImGui::CloseCurrentPopup();
+			fullscreenModeClosePopup = false;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("No") || (IS_ONLY_ESCAPE_PRESSED && wasEscapeUp))
+		{
+			wasEscapeUp = false;
+			ImGui::CloseCurrentPopup();
+			fullscreenModeClosePopup = false;
+		}
+		ImGui::EndPopup();
+	}
+
+	if (ImGui::IsKeyReleased(ImGuiKey_Escape))
+		wasEscapeUp = true;
 
 	// following way might be better, but it requires a use of some weird values like 0xF for CTRL+S
 	//if (io.InputQueueCharacters.size() == 1)
@@ -859,7 +1025,7 @@ int OnGui()
 		if (ImGui::Begin("Settings", &isSettingOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse))
 		{
 			// On Settings Window Closed:
-			if (wasLastSettingsOpen && !isSettingOpen && HasStyleChanged())
+			if (wasLastSettingsOpen && !isSettingOpen && HasConfigChanged())
 			{
 				// Call a popup by name
 				ImGui::OpenPopup("Save Style?");
@@ -882,14 +1048,14 @@ int OnGui()
 
 				if (ImGui::Button("Save"))
 				{
-					SaveCurrentStyleConfig();
+					SaveCurrentUserConfig();
 					isSettingOpen = false;
 					ImGui::CloseCurrentPopup();
 				}
 				ImGui::SameLine();
 				if (ImGui::Button("Discard"))
 				{
-					RevertStyle();
+					RevertConfig();
 					isSettingOpen = false;
 					ImGui::CloseCurrentPopup();
 				}
@@ -908,7 +1074,7 @@ int OnGui()
 			static int selectedSettings = 0;
 			const auto avail = ImGui::GetContentRegionAvail();
 
-			const char* items[3]{ "Style", "Performance", "Test" };
+			const char* items[2]{ "Style", "Performance" };
 
 			// Makes list take ({listBoxSize}*100)% width of the parent
 			float listBoxSize = 0.3f;
@@ -931,17 +1097,19 @@ int OnGui()
 
 			ImGui::SameLine();
 
+			ImGui::BeginGroup();
+
 			switch (selectedSettings)
 			{
 			case 0: // Style
 			{
-				ImGui::BeginGroup();
 				ImGui::BeginChild("Style", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true);
 
 				ImGui::ColorEdit4("Main Color", accentColor);
 
 				ImGui::PushID(02);
 				ImGui::SliderFloat("Brightness", &accentBrightness, -0.5f, 0.5f);
+				REVERT(&accentBrightness, accentBrightnessBak);
 				ImGui::PopID();
 
 				auto _accentColor = ImVec4(*(ImVec4*)accentColor);
@@ -970,6 +1138,7 @@ int OnGui()
 
 				ImGui::PushID(12);
 				ImGui::SliderFloat("Brightness", &fontBrightness, -1.0f, 1.0f, "%.3f");
+				REVERT(&fontBrightness, fontBrightnessBak);
 				ImGui::PopID();
 
 				auto _fontColor = ImVec4(*(ImVec4*)fontColor);
@@ -1027,7 +1196,9 @@ int OnGui()
 				}
 				//ImGui::PopFont();
 
-				if (ImGui::SliderFloat("Font Size", &fontSize, 0.5f, 2, "%.2f"))
+				bool hasFontSizeChanged = ImGui::SliderFloat("Font Size", &fontSize, 0.5f, 2, "%.2f");
+				REVERT(&fontSize, fontSizeBak);
+				if (hasFontSizeChanged || ImGui::IsItemClicked(1))
 				{
 					for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 					{
@@ -1038,31 +1209,50 @@ int OnGui()
 
 				ImGui::EndChild();
 
-
-				ImGui::BeginGroup();
-
-				auto buttonsAvail = ImGui::GetContentRegionAvail();
-
-				if (ImGui::Button("Revert", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
-				{
-					RevertStyle();
-				}
-
-				ImGui::SameLine();
-
-				if (ImGui::Button("Save", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
-				{
-					SaveCurrentStyleConfig();
-					//SaveStyleConfig(colors, brightnesses, selectedFont, fontSize);
-				}
-
-				ImGui::EndGroup();
-
-				ImGui::EndGroup();
-
 				break;
 			}
+			// Performance
+			case 1:
+				if (ImGui::BeginChild("Performance", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true))
+				{
+					auto performanceAvail = ImGui::GetContentRegionAvail();
+					ImGui::Checkbox("###LockGuiFpsCB", &lockGuiFps);
+					TOOLTIP("It's strongly recommended to keep GUI FPS locked for the best performance");
+
+					ImGui::BeginDisabled(!lockGuiFps);
+					ImGui::SameLine();
+					ImGui::PushItemWidth(performanceAvail.x - ImGui::GetItemRectSize().x - style.FramePadding.x * 3 - ImGui::CalcTextSize("GUI Refresh Rate").x);
+					//ImGui::SliderInt("GUI FPS", &guiLockedFps, 30, 360, "%.1f");
+					ImGui::DragInt("GUI Refresh Rate", &guiLockedFps, .5f, 30, 480);
+					REVERT(&guiLockedFps, guiLockedFpsBak);
+					ImGui::PopItemWidth();
+					ImGui::EndDisabled();
+
+					ImGui::EndChild();
+
+					break;
+				}
 			}
+			ImGui::BeginGroup();
+
+			auto buttonsAvail = ImGui::GetContentRegionAvail();
+
+			if (ImGui::Button("Revert", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
+			{
+				RevertConfig();
+			}
+
+			ImGui::SameLine();
+
+			if (ImGui::Button("Save", { (buttonsAvail.x / 2 - style.FramePadding.x), ImGui::GetFrameHeight() }))
+			{
+				SaveCurrentUserConfig();
+				//SaveStyleConfig(colors, brightnesses, selectedFont, fontSize);
+			}
+
+			ImGui::EndGroup();
+
+			ImGui::EndGroup();
 		}
 		ImGui::End();
 	}
@@ -1070,10 +1260,10 @@ int OnGui()
 	if (ImGui::BeginChild("LeftChild", { avail.x / 2 - style.WindowPadding.x, avail.y - detectionRectSize.y + style.WindowPadding.y - 20 }, true))
 	{
 
-#ifdef DEBUG
+#ifdef _DEBUG 
 
-		ImGui::Text("Time is: %ims", clock());
-		ImGui::Text("Time is: %luus", micros());
+		//ImGui::Text("Time is: %ims", clock());
+		ImGui::Text("Time is: %lu\xC2\xB5s", micros());
 
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
@@ -1133,13 +1323,40 @@ int OnGui()
 		}
 		ImGui::EndDisabled();
 
+		ImGui::SameLine();
+		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 10, 0 });
+
+		if (ImGui::Button("Clear"))
+		{
+			ImGui::OpenPopup("Clear?");
+		}
+
+		if (ImGui::BeginPopupModal("Clear?", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("Are you sure you want to clear EVERYTHING?");
+
+			ImGui::SeparatorSpace(0, { 0, 10 });
+
+			if (ImGui::Button("Yes") || IS_ONLY_ENTER_PRESSED)
+			{
+				ClearData();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("No") || IS_ONLY_ESCAPE_PRESSED)
+			{
+				ImGui::CloseCurrentPopup();
+			}
+
+			ImGui::EndPopup();
+		}
 		ImGui::EndGroup();
 
 		ImGui::Spacing();
 
 		ImGui::PushFont(boldFont);
 
-		if (ImGui::BeginChild("MeasurementStats", { 0,ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y }, true))
+		if (ImGui::BeginChild("MeasurementStats", { 0, ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y * 2 }, true))
 		{
 			/*
 			//ImGui::BeginGroup();
@@ -1183,10 +1400,13 @@ int OnGui()
 
 				ImGui::TableSetColumnIndex(1);
 				ImGui::Text("Internal");
+				TOOLTIPFONT("Time measured by the computer from the moment it got the start signal (button press) to the signal that the light intensity change was spotted");
 				ImGui::TableNextColumn();
 				ImGui::Text("External");
+				TOOLTIPFONT("Time measured by the microcontroller from the button press to the change of light intensity");
 				ImGui::TableNextColumn();
 				ImGui::Text("Input");
+				TOOLTIPFONT("Time between computer sending a message to the microcontroller and receiving it back (Ping)");
 
 				ImGui::TableNextRow();
 
@@ -1278,18 +1498,14 @@ int OnGui()
 				ImGui::TableNextColumn();
 
 				ImGui::Text("%i", reading.timeInternal / 1000);
-				if (ImGui::IsItemHovered())
-				{
-					// \xC2\xB5 is the microseconds character (looks like u (not you, just "u"))
-					ImGui::SetTooltip("%i\xC2\xB5s", reading.timeInternal);
-				}
+				// \xC2\xB5 is the microseconds character (looks like u (not you, just "u"))
+				TOOLTIP("%i\xC2\xB5s", reading.timeInternal);
+
 				ImGui::TableNextColumn();
 
 				ImGui::Text("%i", reading.timePing / 1000);
-				if (ImGui::IsItemHovered())
-				{
-					ImGui::SetTooltip("%i\xC2\xB5s", reading.timePing);
-				}
+				TOOLTIP("%i\xC2\xB5s", reading.timePing);
+
 				ImGui::TableNextColumn();
 
 				if (ImGui::SmallButton("X"))
@@ -1304,7 +1520,7 @@ int OnGui()
 	}
 
 	// Color change detection rectangle.
-	ImVec2 rectSize{0, detectionRectSize.y};
+	ImVec2 rectSize{ 0, detectionRectSize.y };
 	rectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
 	ImVec2 pos = { 0, avail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 };
 	ImRect bb{ pos, pos + rectSize };
@@ -1596,7 +1812,7 @@ void HandleSerial()
 		return;
 
 
-}
+			}
 
 void CloseSerial()
 {
@@ -1604,6 +1820,20 @@ void CloseSerial()
 	CloseHandle(osReader.hEvent);
 }
 #endif
+
+bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
+{
+	IDXGIOutput* output;
+
+	if (GUI::g_pSwapChain->GetContainingOutput(&output) != S_OK)
+		return false;
+
+	if (output->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM, NULL, size, modes) != S_OK)
+	{
+		return false;
+		printf("Error getting the display modes\n");
+	}
+}
 
 // Main code
 int main(int, char**)
@@ -1614,6 +1844,8 @@ int main(int, char**)
 	static unsigned int frameSum = 0;
 
 	bool done = false;
+
+	ImGuiIO& io = ImGui::GetIO();
 
 	//float colors[styleColorNum][4];
 	//float brightnesses[styleColorNum] = { accentBrightness, fontBrightness };
@@ -1639,8 +1871,6 @@ int main(int, char**)
 		selectedFontBak = selectedFont;
 		fontSizeBak = fontSize;
 
-		ImGuiIO& io = ImGui::GetIO();
-
 		for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 		{
 			io.Fonts->Fonts[i]->Scale = fontSize;
@@ -1656,6 +1886,9 @@ int main(int, char**)
 			boldFont = io.Fonts->Fonts[fontIndex[selectedFont]];
 
 		boldFontBak = boldFont;
+
+		guiLockedFpsBak = guiLockedFps;
+		lockGuiFpsBak = lockGuiFps;
 	}
 	else
 	{
@@ -1666,12 +1899,27 @@ int main(int, char**)
 		memcpy(&accentColorBak, &(styleColors[ImGuiCol_Header]), colorSize);
 		memcpy(&fontColorBak, &(styleColors[ImGuiCol_Text]), colorSize);
 
+
+		UINT modesNum = 256;
+		DXGI_MODE_DESC monitorModes[256];
+		GetMonitorModes(monitorModes, &modesNum);
+		printf("found %u monitor modes\n", modesNum);
+		guiLockedFps = monitorModes[modesNum - 1].RefreshRate.Numerator * 2;
+		guiLockedFpsBak = guiLockedFps;
+
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
 
 	LoadCurrentUserConfig();
 
 	Serial::FindAvailableSerialPorts();
+
+
+	//BOOL fScreen;
+	//IDXGIOutput* output;
+	//GUI::g_pSwapChain->GetFullscreenState(&fScreen, &output);
+	//isFullscreen = fScreen;
+
 
 	//if (Serial::Setup("COM4", GotSerialChar))
 	//	printf("Serial Port opened successfuly");
@@ -1684,7 +1932,7 @@ int main(int, char**)
 		Serial::HandleInput();
 
 		// GUI Loop
-		if (micros() - lastFrameGui >= (1.f / 72) * 1000000)
+		if (micros() - lastFrameGui >= (1.f / guiLockedFps) * 1000000 || !lockGuiFps)
 			if (GUI::DrawGui())
 				break;
 

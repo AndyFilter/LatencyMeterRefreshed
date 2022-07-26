@@ -43,7 +43,14 @@ struct StyleData
 	float fontSize;
 };
 
+struct PerformanceData
+{
+	bool lockGuiFps;
+	int guiLockedFps;
+};
+
 struct UserData
 {
 	StyleData style;
+	PerformanceData performance;
 };
