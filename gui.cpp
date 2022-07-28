@@ -23,7 +23,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 static int windowX = 1280, windowY = 720;
 
-const float defaultFontSize = 13.0f;
+float defaultFontSize = 13.0f;
 
 static WNDCLASSEX wc;
 static HWND hwnd;
@@ -31,7 +31,7 @@ static HWND hwnd;
 static int (*mainGuiFunc)();
 
 // Setup code, takes a function to run when doing GUI
-HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
+HWND GUI::Setup(int (*OnGuiFunc)())
 {
     if (OnGuiFunc != NULL)
         mainGuiFunc = OnGuiFunc;
@@ -58,7 +58,7 @@ HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
 
     // Setup Dear ImGui style
     //ImGui::StyleColorsDark();
@@ -67,30 +67,6 @@ HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
     // Setup Platform/Renderer backends
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
-
-    ImFontConfig config;
-    config.OversampleH = 2;
-    config.OversampleV = 2;
-
-    io.FontDefault =  io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Regular.ttf", defaultFontSize, &config);
-    io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Bold.ttf", defaultFontSize, &config);
-
-    config.GlyphOffset.y = -1;
-    io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
-    io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Black.ttf", defaultFontSize, &config);
-    config.GlyphOffset.y = 0;
-
-    //io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Gothicb.ttf", 14.f);
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Framd.ttf", defaultFontSize, &config);
-
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Lucon.ttf", defaultFontSize, &config);
-
-    io.Fonts->Build();
-
-    //for (int i = 0; i < io.Fonts->Fonts.Size; i++)
-    //{
-    //    io.Fonts->Fonts[i]->Scale = 2.f;
-    //}
 
     //io.DeltaTime = 200;
 
@@ -237,6 +213,38 @@ HWND GUI::Setup(int (*OnGuiFunc)() = NULL)
     return hwnd;
 }
 
+void GUI::LoadFonts(float fontSizeMultiplier)
+{
+    ImGuiIO& io = ImGui::GetIO();
+
+    ImFontConfig config;
+    config.OversampleH = 2 * fontSizeMultiplier;
+    config.OversampleV = 2 * fontSizeMultiplier;
+
+    defaultFontSize += fontSizeMultiplier;
+
+    io.FontDefault = io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Regular.ttf", defaultFontSize, &config);
+    io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Bold.ttf", defaultFontSize, &config);
+
+    config.GlyphOffset.y = -1;
+    io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
+    io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Black.ttf", defaultFontSize, &config);
+    config.GlyphOffset.y = 0;
+
+    //io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Gothicb.ttf", 14.f);
+    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Framd.ttf", defaultFontSize, &config);
+
+    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Lucon.ttf", defaultFontSize, &config);
+
+    io.Fonts->Build();
+
+    //for (int i = 0; i < io.Fonts->Fonts.Size; i++)
+    //{
+    //    io.Fonts->Fonts[i]->Scale = 2.f;
+    //}
+
+}
+
 int GUI::DrawGui() noexcept
 {
     static bool showMainWindow = true;
@@ -268,8 +276,8 @@ int GUI::DrawGui() noexcept
     ImGui::PopStyleVar();
 
     // Call the GUI function in main file
-    if (int maninGui = mainGuiFunc())
-        return maninGui;
+    if (int mainGui = mainGuiFunc())
+        return mainGui;
 
     ImGui::End();
 

@@ -1449,6 +1449,7 @@ void ImGui::Separator()
 // Horizontal / Vertical separator with spacing
 void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
 {
+    //ImGuiContext& g = *GImGui;
     ImGuiSeparatorFlags flags = (ImGuiSeparatorFlags)flags1;
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -1472,7 +1473,7 @@ void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
     {
         if (size_arg.x > 0)
         {
-            ImGui::Dummy({ size_arg.x / 2, 0 });
+            ImGui::Dummy({ (size_arg.x / 2) - g.Style.ItemSpacing.x , 0 });
             ImGui::SameLine();
         }
 
@@ -1492,7 +1493,7 @@ void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
 
         if (size_arg.x > 0)
         {
-            ImGui::Dummy({ size_arg.x / 2, 0 });
+            ImGui::Dummy({ (size_arg.x / 2) - g.Style.ItemSpacing.x, 0 });
             ImGui::SameLine();
         }
 
@@ -1500,7 +1501,7 @@ void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
     }
     else if (flags & ImGuiSeparatorFlags_Horizontal)
     {
-        ImGui::Dummy({ 0, size.y / 2 });
+        ImGui::Dummy({ 0, (size.y / 2) - g.Style.ItemSpacing.y });
 
         // Horizontal Separator
         float x1 = window->Pos.x + (window->Size.x / 2) - (size.x / 2);
@@ -1541,7 +1542,7 @@ void ImGui::SeparatorSpace(int flags1, const ImVec2& size_arg)
             columns->LineMinY = window->DC.CursorPos.y;
         }
 
-        ImGui::Dummy({ 0, size.y / 2 });
+        ImGui::Dummy({ 0, (size.y / 2) - g.Style.ItemSpacing.y });
     }
 }
 

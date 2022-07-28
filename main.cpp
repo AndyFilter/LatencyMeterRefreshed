@@ -91,6 +91,10 @@ bool isFullscreen = false;
 bool fullscreenModeOpenPopup = false;
 bool fullscreenModeClosePopup = false;
 
+bool isGameMode = false;
+bool wasLMB_Pressed = false;
+bool wasMouseClickSent = false;
+
 // Forward declaration
 void GotSerialChar(char c);
 void SaveAsMeasurements();
@@ -106,9 +110,12 @@ TODO:
 + Open a window to select which save file you want to open
 + Better fullscreen implementation (ESCAPE to exit etc.)
 + Max Gui fps slider in settings
-- Load the font in earlier selected size
++ Load the font in earlier selected size (?)
 - Movable black Square for color detection (?) Check for any additional latency this might involve
-- Clear / Reset button
++ Clear / Reset button
+- Game integration. Please don't get me banned again
+- Fix overwriting saves
+- Unsaved work notification
 
 */
 
@@ -752,7 +759,7 @@ void OpenMeasurements()
 	ZeroMemory(filename, sizeof(filename));
 	OPENFILENAME ofn = { sizeof(OPENFILENAME) };
 
-	//ofn.hwndOwner = hwnd;
+	ofn.hwndOwner = hwnd;
 	ofn.lpstrFile = filename;
 	ofn.nMaxFile = MAX_PATH;
 	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
@@ -1279,7 +1286,11 @@ int OnGui()
 #endif // DEBUG
 
 		//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
+
+		static ImVec2 restItemsSize;
+
 		ImGui::BeginGroup();
+
 		ImGui::PushItemWidth(80);
 		if (ImGui::BeginCombo("Port", Serial::availablePorts[selectedPort].c_str()))
 		{
@@ -1305,7 +1316,7 @@ int OnGui()
 		}
 
 		ImGui::SameLine();
-		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 10, 0 });
+		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
 		ImGui::BeginDisabled(Serial::isConnected);
 		if (ImGui::ButtonEx("Connect"))
@@ -1323,8 +1334,30 @@ int OnGui()
 		}
 		ImGui::EndDisabled();
 
+		ImGui::EndGroup();
+
+		auto portItemsSize = ImGui::GetItemRectSize();
+
+		if (portItemsSize.x + restItemsSize.x + 30 < ImGui::GetContentRegionAvail().x)
+		{
+			ImGui::SameLine();
+			ImGui::Dummy({ -10, 0 });
+			ImGui::SameLine();
+			//ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+			//ImGui::SameLine();
+
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
+		}
+		else
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
+
+		ImGui::BeginGroup();
+
+		ImGui::Checkbox("Game Mode", &isGameMode);
+		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).5\nTo register the delay between input and shot in game.")
+
 		ImGui::SameLine();
-		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 10, 0 });
+		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
 		if (ImGui::Button("Clear"))
 		{
@@ -1350,7 +1383,10 @@ int OnGui()
 
 			ImGui::EndPopup();
 		}
+
 		ImGui::EndGroup();
+
+		restItemsSize = ImGui::GetItemRectSize();
 
 		ImGui::Spacing();
 
@@ -1528,7 +1564,7 @@ int OnGui()
 		bb.Min,
 		bb.Max,
 		// Change the color to white to be detected by the light sensor
-		serialStatus == Status_WaitingForResult ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1)),
+		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1)),
 		false
 	);
 
@@ -1559,6 +1595,11 @@ void GotSerialChar(char c)
 			internalStartTime = micros();
 			printf("waiting for results\n");
 			serialStatus = Status_WaitingForResult;
+			if (isGameMode)
+			{
+				wasMouseClickSent = false;
+				wasLMB_Pressed = false;
+			}
 		}
 		break;
 	case Status_WaitingForResult:
@@ -1835,6 +1876,29 @@ bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 	}
 }
 
+void HandleGameMode()
+{
+	if (!isGameMode)
+		return;
+
+	if (serialStatus != Status_WaitingForResult)
+		return;
+
+	INPUT input = {};
+	ZeroMemory(&input, sizeof(input));
+
+	input.type = INPUT_MOUSE;
+	input.mi.dx = 0;
+	input.mi.dy = 0;
+	input.mi.dwFlags = wasLMB_Pressed ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_LEFTDOWN;
+
+	if (SendInput(1, &input, sizeof(input)))
+	{
+		wasMouseClickSent = wasLMB_Pressed;
+		wasLMB_Pressed = true;
+	}
+}
+
 // Main code
 int main(int, char**)
 {
@@ -1871,6 +1935,8 @@ int main(int, char**)
 		selectedFontBak = selectedFont;
 		fontSizeBak = fontSize;
 
+		GUI::LoadFonts(fontSize);
+
 		for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 		{
 			io.Fonts->Fonts[i]->Scale = fontSize;
@@ -1899,6 +1965,8 @@ int main(int, char**)
 		memcpy(&accentColorBak, &(styleColors[ImGuiCol_Header]), colorSize);
 		memcpy(&fontColorBak, &(styleColors[ImGuiCol_Text]), colorSize);
 
+		GUI::LoadFonts(fontSize);
+
 
 		UINT modesNum = 256;
 		DXGI_MODE_DESC monitorModes[256];
@@ -1926,15 +1994,25 @@ int main(int, char**)
 	//else
 	//	printf("Error setting up the Serial Port");
 
+	// used to cover the time of rendering a frame when calculating when a next frame should be displayed
+	unsigned int lastFrameRenderTime = 0;
+
 	// Main Loop
 	while (!done)
 	{
 		Serial::HandleInput();
 
+		if(isGameMode)
+			HandleGameMode();
+
 		// GUI Loop
-		if (micros() - lastFrameGui >= (1.f / guiLockedFps) * 1000000 || !lockGuiFps)
+		if (micros() - lastFrameGui + (lastFrameRenderTime) >= 1000000 / guiLockedFps || !lockGuiFps)
+		{
+			uint64_t frameStartRender = micros();
 			if (GUI::DrawGui())
 				break;
+			lastFrameRenderTime = lastFrameGui - frameStartRender;
+		}
 
 		unsigned int newFrame = micros() - lastFrame;
 

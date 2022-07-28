@@ -7,6 +7,7 @@ namespace GUI
 	HWND Setup(int (*OnGuiFunc)());
 	int DrawGui() noexcept;
 	void Destroy() noexcept;
+	void LoadFonts(float fontSizeMultiplier = 1.f);
 
 	inline IDXGISwapChain* g_pSwapChain = NULL;
 }
