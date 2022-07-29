@@ -79,10 +79,13 @@ int selectedPort = 0;
 std::vector<LatencyReading> latencyTests;
 
 LatencyStats latencyStats{};
+
+char notes[1000];
 // --------
 
 
 bool isSaved = true;
+bool isExiting = false;
 char savePath[MAX_PATH]{ 0 };
 
 static ImGuiTableSortSpecs* sortSpec;
@@ -97,7 +100,7 @@ bool wasMouseClickSent = false;
 
 // Forward declaration
 void GotSerialChar(char c);
-void SaveAsMeasurements();
+bool SaveAsMeasurements();
 
 
 /*
@@ -113,9 +116,9 @@ TODO:
 + Load the font in earlier selected size (?)
 - Movable black Square for color detection (?) Check for any additional latency this might involve
 + Clear / Reset button
-- Game integration. Please don't get me banned again
-- Fix overwriting saves
-- Unsaved work notification
+- Game integration. Please don't get me banned again (needs testing)
++ Fix overwriting saves
++ Unsaved work notification
 
 */
 
@@ -693,21 +696,36 @@ void RemoveMeasurement(size_t index)
 	else
 	{
 		latencyStats = LatencyStats();
-		latencyTests.erase(latencyTests.begin() + index);
+		latencyTests.clear();
+		isSaved = true;
 	}
 }
 
-void SaveMeasurements()
+bool SaveMeasurements()
 {
+	if (latencyTests.size() < 1)
+		return false;
+
 	if (std::strlen(savePath) == 0)
 		return SaveAsMeasurements();
 
-	HelperJson::SaveLatencyTests(latencyTests, savePath);
+	LatencyData latencyData{};
+	ZeroMemory(&latencyData, sizeof(LatencyData));
+
+	latencyData.measurements = latencyTests;
+	strcpy_s(latencyData.note, notes);
+
+	HelperJson::SaveLatencyTests(latencyData, savePath);
 	isSaved = true;
+
+	return isSaved;
 }
 
-void SaveAsMeasurements()
+bool SaveAsMeasurements()
 {
+	if (latencyTests.size() < 1)
+		return false;
+
 	bool wasFullscreen = isFullscreen;
 	if (isFullscreen)
 	{
@@ -718,10 +736,12 @@ void SaveAsMeasurements()
 	}
 
 	char filename[MAX_PATH]{ "name" };
-	const char szExt[] = "json\0";
+	const char szExt[] = "Json\0*.json\0\0";
 
-	OPENFILENAME ofn = { sizeof(OPENFILENAME) };
+	OPENFILENAME ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
 
+	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = hwnd;
 	ofn.lpstrFile = filename;
 	ofn.nMaxFile = MAX_PATH;
@@ -730,16 +750,26 @@ void SaveAsMeasurements()
 
 	if (GetSaveFileName(&ofn))
 	{
-		HelperJson::SaveLatencyTests(latencyTests, filename);
+		LatencyData latencyData{};
+		ZeroMemory(&latencyData, sizeof(LatencyData));
+
+		latencyData.measurements = latencyTests;
+		strcpy_s(latencyData.note, notes);
+
+		HelperJson::SaveLatencyTests(latencyData, filename);
 		strncpy_s(savePath, filename, MAX_PATH);
 		isSaved = true;
 	}
+	else
+		isSaved = false;
 
 	if (wasFullscreen)
 	{
 		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
 		isFullscreen = true;
 	}
+
+	return isSaved;
 }
 
 void OpenMeasurements()
@@ -767,7 +797,13 @@ void OpenMeasurements()
 
 	if (GetOpenFileName(&ofn))
 	{
-		HelperJson::GetLatencyTests(latencyTests, filename);
+		LatencyData latencyData{};
+		ZeroMemory(&latencyData, sizeof(LatencyData));
+
+		HelperJson::GetLatencyTests(latencyData, filename);
+
+		latencyTests = latencyData.measurements;
+		strcpy_s(notes, latencyData.note);
 
 		if (latencyTests.empty())
 			return;
@@ -793,6 +829,8 @@ void ClearData()
 {
 	latencyTests.clear();
 	latencyStats = LatencyStats();
+	isSaved = true;
+	ZeroMemory(notes, 1000);
 }
 
 // Not the best GUI solution, but it's simple, fast and gets the job done.
@@ -1354,7 +1392,7 @@ int OnGui()
 		ImGui::BeginGroup();
 
 		ImGui::Checkbox("Game Mode", &isGameMode);
-		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).5\nTo register the delay between input and shot in game.")
+		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.")
 
 		ImGui::SameLine();
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
@@ -1486,10 +1524,13 @@ int OnGui()
 		ImGui::PopFont();
 
 
-		ImGui::EndChild();
+
 	}
+	ImGui::EndChild();
 
 	ImGui::SameLine();
+
+	ImGui::BeginGroup();
 
 	auto tableAvail = ImGui::GetContentRegionAvail();
 
@@ -1555,6 +1596,15 @@ int OnGui()
 		ImGui::EndTable();
 	}
 
+	//ImGui::SameLine();
+
+	// Notes area
+	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
+	ImGui::Text("Measurement notes");
+	ImGui::InputTextMultiline("Measurements Notes", notes, 1000, { tableAvail.x, min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 15});
+
+	ImGui::EndGroup();
+
 	// Color change detection rectangle.
 	ImVec2 rectSize{ 0, detectionRectSize.y };
 	rectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
@@ -1564,9 +1614,55 @@ int OnGui()
 		bb.Min,
 		bb.Max,
 		// Change the color to white to be detected by the light sensor
-		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1)),
+		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1.f)),
 		false
 	);
+	
+	static bool isExitingWindowOpen = false;
+
+	if (isExiting)
+	{
+		if (!isSaved)
+		{
+			isExitingWindowOpen = true;
+			ImGui::OpenPopup("Exit?");
+		}
+	}
+
+	if (ImGui::BeginPopupModal("Exit?", &isExitingWindowOpen, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::Text("Are you sure you want to exit before saving?");
+
+		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
+
+		if (ImGui::Button("Save and exit"))
+		{
+			if (SaveMeasurements())
+			{
+				ImGui::CloseCurrentPopup();
+				isExitingWindowOpen = false;
+				return 2;
+			}
+			else
+				printf("Could not save the file");
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Exit"))
+		{
+			ImGui::CloseCurrentPopup();
+			isExitingWindowOpen = false;
+			ImGui::EndPopup();
+			return 2;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+		{
+			ImGui::CloseCurrentPopup();
+			isExitingWindowOpen = false;
+			isExiting = false;
+		}
+		ImGui::EndPopup();
+	}
 
 	lastFrameGui = micros();
 
@@ -1899,10 +1995,31 @@ void HandleGameMode()
 	}
 }
 
+// Returns true if should exit, false otherwise
+bool OnExit()
+{
+	if (isSaved)
+	{
+		// Gui closes itself from the wnd messages
+		Serial::Close();
+
+		exit(0);
+	}
+	isExiting = true;
+	return isSaved;
+}
+
 // Main code
 int main(int, char**)
 {
 	hwnd = GUI::Setup(OnGui);
+	GUI::onExitFunc = OnExit;
+
+#ifndef _DEBUG
+	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
+#endif
+
+	::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 
 	static unsigned int frameIndex = 0;
 	static unsigned int frameSum = 0;
@@ -1997,6 +2114,10 @@ int main(int, char**)
 	// used to cover the time of rendering a frame when calculating when a next frame should be displayed
 	unsigned int lastFrameRenderTime = 0;
 
+	int GUI_Return_Code = 0;
+
+MainLoop:
+
 	// Main Loop
 	while (!done)
 	{
@@ -2009,7 +2130,7 @@ int main(int, char**)
 		if (micros() - lastFrameGui + (lastFrameRenderTime) >= 1000000 / guiLockedFps || !lockGuiFps)
 		{
 			uint64_t frameStartRender = micros();
-			if (GUI::DrawGui())
+			if (GUI_Return_Code = GUI::DrawGui())
 				break;
 			lastFrameRenderTime = lastFrameGui - frameStartRender;
 		}
@@ -2029,6 +2150,12 @@ int main(int, char**)
 
 		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
 		//Sleep(1);
+	}
+
+	// Check if everything is saved before exiting the program.
+	if (!isSaved && GUI_Return_Code < 1)
+	{
+		goto MainLoop;
 	}
 
 	Serial::Close();

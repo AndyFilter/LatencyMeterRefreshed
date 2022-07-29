@@ -29,6 +29,12 @@ struct LatencyStats
 	LatencyParameters inputLatency;
 };
 
+struct LatencyData
+{
+	std::vector<LatencyReading> measurements;
+	char note[1000];
+};
+
 
 struct StyleData
 {

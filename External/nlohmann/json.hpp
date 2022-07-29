@@ -20800,6 +20800,7 @@ namespace nlohmann
             }
             else
             {
+                printf("type: %s", type_name());
                 JSON_THROW(type_error::create(304, detail::concat("cannot use at() with ", type_name()), this));
             }
         }

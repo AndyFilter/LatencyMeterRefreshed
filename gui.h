@@ -10,6 +10,7 @@ namespace GUI
 	void LoadFonts(float fontSizeMultiplier = 1.f);
 
 	inline IDXGISwapChain* g_pSwapChain = NULL;
+	inline bool (*onExitFunc)();
 }
 
 #define TOOLTIP(...)					\

@@ -11,7 +11,7 @@ namespace HelperJson
 
 	bool GetUserData(UserData &userData);
 
-	void SaveLatencyTests(std::vector<LatencyReading> tests, char path[_MAX_PATH]);
+	void SaveLatencyTests(LatencyData tests, char path[_MAX_PATH]);
 
-	void GetLatencyTests(std::vector<LatencyReading>& tests, char path[_MAX_PATH]);
+	void GetLatencyTests(LatencyData& tests, char path[_MAX_PATH]);
 }
