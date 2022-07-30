@@ -381,6 +381,7 @@ void SaveCurrentUserConfig()
 	lockGuiFpsBak = lockGuiFps;
 
 	HelperJson::SaveUserData(*userData);
+	delete userData;
 }
 
 bool LoadCurrentUserConfig()
@@ -614,6 +615,7 @@ void RemoveMeasurement(size_t index)
 		_latencyStats.inputLatency.average = ((latencyStats.inputLatency.average * size) - result.timePing) / (size - 1);
 
 		latencyStats = LatencyStats();
+		ZeroMemory(&latencyStats, sizeof(latencyStats));
 		latencyStats.externalLatency.average = _latencyStats.externalLatency.average;
 		latencyStats.internalLatency.average = _latencyStats.internalLatency.average;
 		latencyStats.inputLatency.average = _latencyStats.inputLatency.average;
@@ -787,8 +789,11 @@ void OpenMeasurements()
 	const char szExt[] = "json\0";
 
 	ZeroMemory(filename, sizeof(filename));
-	OPENFILENAME ofn = { sizeof(OPENFILENAME) };
 
+	OPENFILENAME ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
+
+	ofn.lStructSize = sizeof(OPENFILENAME);
 	ofn.hwndOwner = hwnd;
 	ofn.lpstrFile = filename;
 	ofn.nMaxFile = MAX_PATH;
@@ -906,10 +911,10 @@ int OnGui()
 	ImGuiIO& io = ImGui::GetIO();
 
 	// Handle Shortcuts
-	ImGuiKey pressedKeys[ImGuiKey_COUNT]{};
+	ImGuiKey pressedKeys[ImGuiKey_COUNT]{0};
 	size_t addedKeys = 0;
 
-	ZeroMemory(pressedKeys, ImGuiKey_COUNT);
+	//ZeroMemory(pressedKeys, ImGuiKey_COUNT);
 
 	for (ImGuiKey key = 0; key < ImGuiKey_COUNT; key++)
 	{
@@ -1674,7 +1679,7 @@ void GotSerialChar(char c)
 	printf("Got: %c\n", c);
 
 	// 5 numbers should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
-	static BYTE resultBuffer[5]{};
+	static BYTE resultBuffer[5]{0};
 	static BYTE resultNum = 0;
 
 	static uint64_t internalStartTime = 0;
@@ -1691,10 +1696,26 @@ void GotSerialChar(char c)
 			internalStartTime = micros();
 			printf("waiting for results\n");
 			serialStatus = Status_WaitingForResult;
+
+
 			if (isGameMode)
 			{
-				wasMouseClickSent = false;
-				wasLMB_Pressed = false;
+				INPUT input;
+				ZeroMemory(&input, sizeof(input));
+
+				input.type = INPUT_MOUSE;
+				input.mi.dx = 0;
+				input.mi.dy = 0;
+				input.mi.mouseData = 0;
+				input.mi.dwExtraInfo = NULL;
+				input.mi.time = 0;
+				input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP;
+
+				if (SendInput(1, &input, sizeof(input)))
+				{
+					wasMouseClickSent = false;
+					wasLMB_Pressed = false;
+				}
 			}
 		}
 		break;
@@ -1712,6 +1733,9 @@ void GotSerialChar(char c)
 			{
 				externalTime += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
 			}
+
+			wasMouseClickSent = false;
+			wasLMB_Pressed = false;
 
 			printf("Final result: %i\n", externalTime);
 			LatencyReading reading{ externalTime, internalTime };
@@ -1977,22 +2001,37 @@ void HandleGameMode()
 	if (!isGameMode)
 		return;
 
-	if (serialStatus != Status_WaitingForResult)
+	if (serialStatus != Status_WaitingForResult || wasMouseClickSent)
 		return;
 
-	INPUT input = {};
+	INPUT input;
 	ZeroMemory(&input, sizeof(input));
 
 	input.type = INPUT_MOUSE;
 	input.mi.dx = 0;
 	input.mi.dy = 0;
-	input.mi.dwFlags = wasLMB_Pressed ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_LEFTDOWN;
+	//input.mi.mouseData = NULL;
+	//input.mi.dwExtraInfo = 0;
+	//input.mi.time = 0;
+	input.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_LEFTDOWN;
 
 	if (SendInput(1, &input, sizeof(input)))
 	{
-		wasMouseClickSent = wasLMB_Pressed;
+		wasMouseClickSent = true;
 		wasLMB_Pressed = true;
 	}
+
+	//if (SendInput(1, &input, sizeof(input)))
+	//{
+	//	wasMouseClickSent = wasLMB_Pressed;
+	//	wasLMB_Pressed = true;
+	//}
+	//input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+	//if (SendInput(1, &input, sizeof(input)))
+	//{
+	//	wasMouseClickSent = wasLMB_Pressed;
+	//	wasLMB_Pressed = true;
+	//}
 }
 
 // Returns true if should exit, false otherwise
@@ -2017,9 +2056,11 @@ int main(int, char**)
 
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
+#else
+	::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 #endif
 
-	::ShowWindow(::GetConsoleWindow(), SW_SHOW);
+	//::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 
 	static unsigned int frameIndex = 0;
 	static unsigned int frameSum = 0;
@@ -2123,8 +2164,8 @@ MainLoop:
 	{
 		Serial::HandleInput();
 
-		if(isGameMode)
-			HandleGameMode();
+		//if(isGameMode)
+		//	HandleGameMode();
 
 		// GUI Loop
 		if (micros() - lastFrameGui + (lastFrameRenderTime) >= 1000000 / guiLockedFps || !lockGuiFps)
