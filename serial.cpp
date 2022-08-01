@@ -56,6 +56,8 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	);
 
 	DCB serialParams;
+	ZeroMemory(&serialParams, sizeof(serialParams));
+
 	serialParams.ByteSize = sizeof(serialParams);
 
 	if (!GetCommState(hPort, &serialParams))
@@ -90,7 +92,6 @@ void Serial::HandleInput()
 	if (!isConnected || !hPort)
 		return;
 
-	DWORD dwBytesTransferred;
 	DWORD dwCommModemStatus{};
 	BYTE byte[BYTES_TO_READ]{};
 
@@ -152,38 +153,6 @@ void Serial::HandleInput()
 		}
 	}
 
-	/*
-	const DWORD READ_TIMEOUT = 1;
-
-	DWORD dwRes;
-
-	if (fWaitingOnRead) {
-		dwRes = WaitForSingleObject(osReader.hEvent, READ_TIMEOUT);
-		switch (dwRes)
-		{
-			// Read completed.
-		case WAIT_OBJECT_0:
-			if (!GetOverlappedResult(hPort, &osReader, &dwRead, FALSE))
-				printf("IO Error");
-			// Error in communications; report it.
-			else
-				// Read completed successfully.
-				OnCharReceived(byte);
-
-			//  Reset flag so that another opertion can be issued.
-			fWaitingOnRead = FALSE;
-			break;
-
-			//case WAIT_TIMEOUT:
-			//	break;
-
-		default:
-			printf("Event Error");
-			break;
-		}
-	}
-	*/
-
 
 	if (byte == NULL)
 		return;
@@ -193,7 +162,6 @@ bool Serial::Write(const char* c, size_t size)
 {
 	DWORD dwRead;
 	if (!WriteFile(hPort, c, size, &dwRead, &osReader)) {
-		//handle error here
 		return false;
 	}
 	return true;

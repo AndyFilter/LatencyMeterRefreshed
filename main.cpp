@@ -26,7 +26,7 @@ const unsigned int AVERAGE_FRAME_AMOUNT = 10000;
 unsigned int frames[AVERAGE_FRAME_AMOUNT]{ 0 };
 unsigned long long totalFrames = 0;
 
-// ---- Styling ----
+// ---- Styling ---- (Don't ask me why I didn't create structures for these things earlier)
 
 const int styleColorNum = 2;
 const unsigned int colorSize = 16;
@@ -116,7 +116,7 @@ TODO:
 + Load the font in earlier selected size (?)
 - Movable black Square for color detection (?) Check for any additional latency this might involve
 + Clear / Reset button
-- Game integration. Please don't get me banned again (needs testing)
++ Game integration. Please don't get me banned again (needs testing) Update: (testing done)
 + Fix overwriting saves
 + Unsaved work notification
 
@@ -1996,8 +1996,11 @@ bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 	}
 }
 
+// It turns out you can just send MOUSEEVENTF_LEFTUP and MOUSEEVENTF_LEFTDOWN at the same time, and it counts as a click...
+// (Unused)
 void HandleGameMode()
 {
+	assert(false);
 	if (!isGameMode)
 		return;
 
