@@ -1527,10 +1527,11 @@ int OnGui()
 		}
 
 		ImGui::PopFont();
-
-
-
 	}
+
+	ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return (float)((LatencyReading*)data)->timeInternal; }, latencyTests.data(), latencyTests.size());
+	//ImGui::PlotLines("FPS Chart", [](void* data, int idx) { return sinf(float(latencyTests[idx % 10].timeInternal) / 1000); }, frames, latencyTests.size());
+
 	ImGui::EndChild();
 
 	ImGui::SameLine();
@@ -1613,7 +1614,7 @@ int OnGui()
 	// Color change detection rectangle.
 	ImVec2 rectSize{ 0, detectionRectSize.y };
 	rectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
-	ImVec2 pos = { 0, avail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 };
+	ImVec2 pos = { 0, avail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 + 10 };
 	ImRect bb{ pos, pos + rectSize };
 	ImGui::RenderFrame(
 		bb.Min,
