@@ -4,6 +4,8 @@
 #include "helperJson.h"
 #include "External/nlohmann/json.hpp"
 
+#include <Windows.h>
+
 using json = nlohmann::json;
 
 const char* configFileName{ "UserData.json" };
@@ -27,6 +29,9 @@ void to_json(json& j, const StyleData& styleData)
 		{"fontColorBrightness", styleData.fontColorBrightness},
 		{"fontSize", styleData.fontSize},
 		{"selectedFont", styleData.selectedFont},
+		{"internalPlotColor", styleData.internalPlotColor},
+		{"externalPlotColor", styleData.externalPlotColor},
+		{"inputPlotColor", styleData.inputPlotColor},
 	};
 }
 
@@ -36,6 +41,7 @@ void to_json(json& j, const PerformanceData& performanceData)
 	{
 		{"lockGuiFps", performanceData.lockGuiFps},
 		{"guiLockedFps", performanceData.guiLockedFps},
+		{"showPlots", performanceData.showPlots},
 	};
 }
 
@@ -46,7 +52,7 @@ void to_json(json& j, const UserData& userData)
 	j = json
 	{
 		{ "style", userData.style },
-		{ "performance", userData.performance }
+		{ "performance", userData.performance },
 	};
 }
 
@@ -75,6 +81,7 @@ void from_json(const json& j, PerformanceData& performanceData)
 {
 	j.at("guiLockedFps").get_to(performanceData.guiLockedFps);
 	j.at("lockGuiFps").get_to(performanceData.lockGuiFps);
+	j.at("showPlots").get_to(performanceData.showPlots);
 }
 
 void from_json(const json& j, StyleData& styleData)
@@ -85,6 +92,9 @@ void from_json(const json& j, StyleData& styleData)
 	j.at("fontColorBrightness").get_to(styleData.fontColorBrightness);
 	j.at("fontSize").get_to(styleData.fontSize);
 	j.at("selectedFont").get_to(styleData.selectedFont);
+	j.at("internalPlotColor").get_to(styleData.internalPlotColor);
+	j.at("externalPlotColor").get_to(styleData.externalPlotColor);
+	j.at("inputPlotColor").get_to(styleData.inputPlotColor);
 }
 
 void from_json(const json& j, UserData& userData)
@@ -116,7 +126,13 @@ void from_json(const json& j, LatencyData& reading)
 
 void HelperJson::SaveUserData(UserData& userData)
 {
-	std::ofstream configFile(configFileName);
+	char localPath[_MAX_PATH + 1];
+	GetModuleFileName(NULL, localPath, _MAX_PATH);
+
+	std::string filePath = std::string(localPath);
+	filePath = filePath.substr(0, filePath.find_last_of("\\/") + 1) + std::string(configFileName);
+
+	std::ofstream configFile(filePath);
 
 	json j = userData;
 
@@ -137,7 +153,13 @@ void HelperJson::SaveUserStyle(StyleData& styleData)
 
 bool HelperJson::GetUserData(UserData& userData)
 {
-	std::ifstream configFile(configFileName);
+	char localPath[_MAX_PATH + 1];
+	GetModuleFileName(NULL, localPath, _MAX_PATH);
+
+	std::string filePath = std::string(localPath) + std::string(configFileName);
+	filePath = filePath.substr(0, filePath.find_last_of("\\/") + 1) + std::string(configFileName);
+
+	std::ifstream configFile(filePath);
 
 	if (!configFile.good())
 	{

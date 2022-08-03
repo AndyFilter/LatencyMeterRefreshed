@@ -44,6 +44,10 @@ struct StyleData
 	float fontColor[4];
 	float fontColorBrightness;
 
+	float internalPlotColor[4]{ 0.1f, 0.8f, 0.2f, 1.f };
+	float externalPlotColor[4]{ 0.3f, 0.3f, 0.9f, 1.f };
+	float inputPlotColor[4]{ 0.8f, 0.1f, 0.2f, 1.f };
+
 
 	int selectedFont;
 	float fontSize;
@@ -53,6 +57,8 @@ struct PerformanceData
 {
 	bool lockGuiFps;
 	int guiLockedFps;
+
+	bool showPlots;
 };
 
 struct UserData

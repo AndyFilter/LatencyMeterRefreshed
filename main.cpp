@@ -43,6 +43,11 @@ float fontSize = 1.f;
 ImFont* boldFont;
 
 
+float internalPlotColor[4] {0.1f, 0.8f, 0.2f, 1.f};
+float externalPlotColor[4] { 0.3f, 0.3f, 0.9f, 1.f };
+float inputPlotColor[4] { 0.8f, 0.1f, 0.2f, 1.f };
+
+
 float accentColorBak[4];
 float accentBrightnessBak = 0.1f;
 
@@ -51,7 +56,11 @@ float fontBrightnessBak = 0.1f;
 
 int selectedFontBak = 0;
 float fontSizeBak = 1.f;
-ImFont* boldFontBak;
+//ImFont* boldFontBak;
+
+//float internalPlotColorBak[4]{ 0.1f, 0.8f, 0.2f, 1.f };
+//float externalPlotColorBak[4]{ 0.3f, 0.3f, 0.9f, 1.f };
+//float inputPlotColorBak[4]{ 0.8f, 0.1f, 0.2f, 1.f };
 
 
 const char* fonts[4]{ "Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console" };
@@ -65,8 +74,22 @@ const int fontIndex[4]{ 0, 2, 4, 5 };
 int guiLockedFps;
 bool lockGuiFps = true;
 
+bool showPlots = true;
+
+
 int guiLockedFpsBak;
 bool lockGuiFpsBak = true;
+
+bool showPlotsBak;
+
+// --------
+
+
+// ---- User Data ----
+
+UserData currentUserData {};
+
+UserData backupUserData {};
 
 // --------
 
@@ -101,6 +124,7 @@ bool wasMouseClickSent = false;
 // Forward declaration
 void GotSerialChar(char c);
 bool SaveAsMeasurements();
+void ClearData();
 
 
 /*
@@ -119,7 +143,8 @@ TODO:
 + Game integration. Please don't get me banned again (needs testing) Update: (testing done)
 + Fix overwriting saves
 + Unsaved work notification
-
+- Custom Fonts (?)
+- Multiple tabs for measurements
 */
 
 bool isSettingOpen = false;
@@ -176,26 +201,30 @@ void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum
 
 void RevertConfig()
 {
-	std::copy(accentColorBak, accentColorBak + 4, accentColor);
-	std::copy(fontColorBak, fontColorBak + 4, fontColor);
+	currentUserData = backupUserData;
 
-	accentBrightness = accentBrightnessBak;
-	fontBrightness = fontBrightnessBak;
+	//std::copy(accentColorBak, accentColorBak + 4, accentColor);
+	//std::copy(fontColorBak, fontColorBak + 4, fontColor);
 
-	fontSize = fontSizeBak;
-	selectedFont = selectedFontBak;
-	boldFont = boldFontBak;
+	//accentBrightness = accentBrightnessBak;
+	//fontBrightness = fontBrightnessBak;
+
+	//fontSize = fontSizeBak;
+	//selectedFont = selectedFontBak;
+	//boldFont = boldFontBak;
+
+	//lockGuiFps = lockGuiFpsBak;
+	//guiLockedFps = guiLockedFpsBak;
+
+	//showPlots = showPlotsBak;
 
 	ImGuiIO& io = ImGui::GetIO();
 
 	for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 	{
-		io.Fonts->Fonts[i]->Scale = fontSize;
+		io.Fonts->Fonts[i]->Scale = currentUserData.style.fontSize;
 	}
-	io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
-
-	lockGuiFps = lockGuiFpsBak;
-	guiLockedFps = guiLockedFpsBak;
+	io.FontDefault = io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]];
 }
 
 int LatencyCompare(const void* a, const void* b)
@@ -255,151 +284,159 @@ int LatencyCompare(const void* a, const void* b)
 }
 
 // deprecated, moved to json based files.
-bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
-{
-	//This function is deprecated, please use SaveCurrentUserConfig
-	assert(false);
-	char buffer[MAX_PATH];
-	::GetCurrentDirectory(MAX_PATH, buffer);
-
-	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
-
-	std::ofstream configFile(filePath);
-	for (size_t i = 0; i < size; i++)
-	{
-		auto color = colors[i];
-		auto packedColor = ImGui::ColorConvertFloat4ToU32(*(ImVec4*)(color));
-		configFile << i << packedColor << "," << std::to_string(brightnesses[i]) << std::endl;
-
-		switch (i)
-		{
-		case 0:
-			std::copy(color, color + 4, accentColorBak);
-			accentBrightnessBak = brightnesses[i];
-			break;
-		case 1:
-			std::copy(color, color + 4, fontColorBak);
-			fontBrightnessBak = brightnesses[i];
-			break;
-		}
-	}
-	selectedFontBak = selectedFont;
-	fontSizeBak = fontSize;
-	boldFontBak = boldFont;
-	configFile << "F" << fontIndex << std::to_string(fontSize) << std::endl;
-	configFile.close();
-
-	std::cout << "File Closed\n";
-
-	return true;
-}
+//bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
+//{
+//	//This function is deprecated, please use SaveCurrentUserConfig
+//	assert(false);
+//	char buffer[MAX_PATH];
+//	::GetCurrentDirectory(MAX_PATH, buffer);
+//
+//	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
+//
+//	std::ofstream configFile(filePath);
+//	for (size_t i = 0; i < size; i++)
+//	{
+//		auto color = colors[i];
+//		auto packedColor = ImGui::ColorConvertFloat4ToU32(*(ImVec4*)(color));
+//		configFile << i << packedColor << "," << std::to_string(brightnesses[i]) << std::endl;
+//
+//		switch (i)
+//		{
+//		case 0:
+//			std::copy(color, color + 4, accentColorBak);
+//			accentBrightnessBak = brightnesses[i];
+//			break;
+//		case 1:
+//			std::copy(color, color + 4, fontColorBak);
+//			fontBrightnessBak = brightnesses[i];
+//			break;
+//		}
+//	}
+//	selectedFontBak = currentUserData.style.selectedFont;
+//	fontSizeBak = fontSize;
+//	boldFontBak = boldFont;
+//	configFile << "F" << fontIndex << std::to_string(fontSize) << std::endl;
+//	configFile.close();
+//
+//	std::cout << "File Closed\n";
+//
+//	return true;
+//}
 
 // deprecated, moved to json based files.
-bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styleColorNum], int& fontIndex, float& fontSize)
-{
-	//This function is deprecated, please use SaveCurrentUserConfig
-	assert(false);
-	char buffer[MAX_PATH];
-	::GetCurrentDirectory(MAX_PATH, buffer);
-
-	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
-
-	std::ifstream configFile(filePath);
-
-	if (!configFile.good())
-		return false;
-
-	std::string line, colorPart, brightnessPart;
-	while (std::getline(configFile, line))
-	{
-		if (line[0] == 'F')
-		{
-			fontIndex = line[1] - '0';
-			fontSize = std::stof(line.substr(2, line.find("\n")));
-			continue;
-		}
-
-		// First char of the line is the index (just to be sure)
-		int index = (int)(line[0] - '0');
-
-		// Color is stored in front of the comma and the brightness after it
-		int delimiterPos = line.find(",");
-		colorPart = line.substr(1, delimiterPos - 1);
-		brightnessPart = line.substr(delimiterPos + 1, line.find("\n"));
-
-		// Extract the color from the string
-		auto subInt = stoll(colorPart);
-		auto color = ImGui::ColorConvertU32ToFloat4(subInt);
-		auto offset = (index * (colorSize));
-
-		// Same with brightness
-		float brightness = std::stof(brightnessPart);
-
-		// Set both of the values
-		memcpy(&(colors[index][0]), &color, colorSize);
-		brightnesses[index] = brightness;
-	}
-
-	// Remember to close the handle
-	configFile.close();
-
-	std::cout << "File Closed\n";
-
-	return true;
-}
+//bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styleColorNum], int& fontIndex, float& fontSize)
+//{
+//	//This function is deprecated, please use SaveCurrentUserConfig
+//	assert(false);
+//	char buffer[MAX_PATH];
+//	::GetCurrentDirectory(MAX_PATH, buffer);
+//
+//	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
+//
+//	std::ifstream configFile(filePath);
+//
+//	if (!configFile.good())
+//		return false;
+//
+//	std::string line, colorPart, brightnessPart;
+//	while (std::getline(configFile, line))
+//	{
+//		if (line[0] == 'F')
+//		{
+//			fontIndex = line[1] - '0';
+//			fontSize = std::stof(line.substr(2, line.find("\n")));
+//			continue;
+//		}
+//
+//		// First char of the line is the index (just to be sure)
+//		int index = (int)(line[0] - '0');
+//
+//		// Color is stored in front of the comma and the brightness after it
+//		int delimiterPos = line.find(",");
+//		colorPart = line.substr(1, delimiterPos - 1);
+//		brightnessPart = line.substr(delimiterPos + 1, line.find("\n"));
+//
+//		// Extract the color from the string
+//		auto subInt = stoll(colorPart);
+//		auto color = ImGui::ColorConvertU32ToFloat4(subInt);
+//		auto offset = (index * (colorSize));
+//
+//		// Same with brightness
+//		float brightness = std::stof(brightnessPart);
+//
+//		// Set both of the values
+//		memcpy(&(colors[index][0]), &color, colorSize);
+//		brightnesses[index] = brightness;
+//	}
+//
+//	// Remember to close the handle
+//	configFile.close();
+//
+//	std::cout << "File Closed\n";
+//
+//	return true;
+//}
 
 // Does the calcualtions and copying for you
 void SaveCurrentUserConfig()
 {
-	UserData* userData = new UserData();
+	//UserData* userData = new UserData();
 
-	StyleData* style = &userData->style;
+	//StyleData* style = &userData->style;
 
-	std::copy(accentColor, accentColor + 4, style->mainColor);
-	std::copy(fontColor, fontColor + 4, style->fontColor);
-	style->mainColorBrightness = accentBrightness;
-	style->fontColorBrightness = fontBrightness;
-	style->fontSize = fontSize;
-	style->selectedFont = selectedFont;
+	//std::copy(accentColor, accentColor + 4, style->mainColor);
+	//std::copy(fontColor, fontColor + 4, style->fontColor);
+	//style->mainColorBrightness = accentBrightness;
+	//style->fontColorBrightness = fontBrightness;
+	//style->fontSize = fontSize;
+	//style->selectedFont = selectedFont;
 
-	std::copy(accentColor, accentColor + 4, accentColorBak);
-	accentBrightnessBak = accentBrightness;
+	//std::copy(accentColor, accentColor + 4, accentColorBak);
+	//accentBrightnessBak = accentBrightness;
 
-	std::copy(fontColor, fontColor + 4, fontColorBak);
-	fontBrightnessBak = fontBrightness;
+	//std::copy(fontColor, fontColor + 4, fontColorBak);
+	//fontBrightnessBak = fontBrightness;
 
-	selectedFontBak = selectedFont;
-	fontSizeBak = fontSize;
-	boldFontBak = boldFont;
+	//selectedFontBak = selectedFont;
+	//fontSizeBak = fontSize;
+	//boldFontBak = boldFont;
 
-	PerformanceData* performance = &userData->performance;
+	//PerformanceData* performance = &userData->performance;
 
-	performance->guiLockedFps = guiLockedFps;
-	performance->lockGuiFps = lockGuiFps;
+	//performance->guiLockedFps = guiLockedFps;
+	//performance->lockGuiFps = lockGuiFps;
 
-	guiLockedFpsBak = guiLockedFps;
-	lockGuiFpsBak = lockGuiFps;
+	//performance->showPlots = showPlots;
 
-	HelperJson::SaveUserData(*userData);
-	delete userData;
+	//guiLockedFpsBak = guiLockedFps;
+	//lockGuiFpsBak = lockGuiFps;
+
+	//showPlotsBak = showPlots;
+
+	backupUserData = currentUserData;
+
+	HelperJson::SaveUserData(currentUserData);
+	//delete userData;
 }
 
 bool LoadCurrentUserConfig()
 {
-	UserData userData;
-	if (!HelperJson::GetUserData(userData))
+	//UserData userData;
+	if (!HelperJson::GetUserData(currentUserData))
 		return false;
 
-	auto style = userData.style;
-	std::copy(style.mainColor, style.mainColor + 4, accentColor);
-	std::copy(style.fontColor, style.fontColor + 4, fontColor);
-	accentBrightness = style.mainColorBrightness;
-	fontBrightness = style.fontColorBrightness;
-	fontSize = style.fontSize;
-	selectedFont = style.selectedFont;
+	//auto style = userData.style;
+	//std::copy(style.mainColor, style.mainColor + 4, accentColor);
+	//std::copy(style.fontColor, style.fontColor + 4, fontColor);
+	//accentBrightness = style.mainColorBrightness;
+	//fontBrightness = style.fontColorBrightness;
+	//fontSize = style.fontSize;
+	//selectedFont = style.selectedFont;
 
-	lockGuiFps = userData.performance.lockGuiFps;
-	guiLockedFps = userData.performance.guiLockedFps;
+	//lockGuiFps = userData.performance.lockGuiFps;
+	//guiLockedFps = userData.performance.guiLockedFps;
+
+	//showPlots = userData.performance.showPlots;
 
 	return true;
 }
@@ -408,8 +445,8 @@ void ApplyCurrentStyle()
 {
 	auto& style = ImGui::GetStyle();
 
-	float brightnesses[styleColorNum]{ accentBrightness, fontBrightness };
-	float* colors[styleColorNum]{ accentColor, fontColor };
+	float brightnesses[styleColorNum]{ currentUserData.style.mainColorBrightness, currentUserData.style.fontColorBrightness };
+	float* colors[styleColorNum]{ currentUserData.style.mainColor, currentUserData.style.fontColor };
 
 	for (int i = 0; i < styleColorNum; i++)
 	{
@@ -449,6 +486,16 @@ void ApplyCurrentStyle()
 	}
 }
 
+void SetPlotLinesColor(ImVec4 color)
+{
+	auto dark = color * (1 - currentUserData.style.mainColorBrightness);
+
+	auto& style = ImGui::GetStyle();
+
+	ImGui::PushStyleColor(ImGuiCol_PlotLines, dark);
+	ImGui::PushStyleColor(ImGuiCol_PlotLinesHovered, color);
+}
+
 ImFont* GetFontBold(int baseFontIndex)
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -470,22 +517,40 @@ ImFont* GetFontBold(int baseFontIndex)
 // But this method would not work as expected when user reverts back the changes or sets the variable to it's original value
 bool HasConfigChanged()
 {
-	bool brightnesses = accentBrightness == accentBrightnessBak && fontBrightness == fontBrightnessBak;
-	bool font = selectedFont == selectedFontBak && fontSize == fontSizeBak;
-	bool fps = guiLockedFps == guiLockedFpsBak && lockGuiFps == lockGuiFpsBak;
+	bool brightnesses = currentUserData.style.mainColorBrightness == accentBrightnessBak && currentUserData.style.fontColorBrightness == backupUserData.style.fontColorBrightness;
+	bool font = currentUserData.style.selectedFont == backupUserData.style.selectedFont && currentUserData.style.fontSize == backupUserData.style.fontSize;
+	bool performance = currentUserData.performance.guiLockedFps == backupUserData.performance.guiLockedFps && currentUserData.performance.lockGuiFps == backupUserData.performance.lockGuiFps && currentUserData.performance.showPlots == backupUserData.performance.showPlots;
 	bool colors{ false };
 
 	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
 	// (Pointers point to different addresses even tho the values at these addresses are the same)
 	for (int column = 0; column < 4; column++)
 	{
-		if (accentColor[column] != accentColorBak[column])
+		if (currentUserData.style.mainColor[column] != backupUserData.style.mainColor[column])
 		{
 			colors = false;
 			break;
 		}
 
-		if (fontColor[column] != fontColorBak[column])
+		if (currentUserData.style.fontColor[column] != backupUserData.style.fontColor[column])
+		{
+			colors = false;
+			break;
+		}
+
+		if (currentUserData.style.internalPlotColor[column] != backupUserData.style.internalPlotColor[column])
+		{
+			colors = false;
+			break;
+		}
+
+		if (currentUserData.style.externalPlotColor[column] != backupUserData.style.externalPlotColor[column])
+		{
+			colors = false;
+			break;
+		}
+
+		if (currentUserData.style.inputPlotColor[column] != backupUserData.style.inputPlotColor[column])
 		{
 			colors = false;
 			break;
@@ -494,7 +559,7 @@ bool HasConfigChanged()
 		colors = true;
 	}
 
-	if (!colors || !brightnesses || !font || !fps)
+	if (!colors || !brightnesses || !font || !performance)
 		return true;
 	else
 		return false;
@@ -507,6 +572,10 @@ void RecalculateStats(bool recalculate_Average = false)
 		return;
 	if (recalculate_Average)
 	{
+		latencyStats.externalLatency.highest = 0;
+		latencyStats.internalLatency.highest = 0;
+		latencyStats.inputLatency.highest = 0;
+
 		unsigned int extSum = 0, intSum = 0, inpSum = 0;
 
 		for (size_t i = 0; i < size; i++)
@@ -805,6 +874,7 @@ void OpenMeasurements()
 		LatencyData latencyData{};
 		ZeroMemory(&latencyData, sizeof(LatencyData));
 
+		ClearData();
 		HelperJson::GetLatencyTests(latencyData, filename);
 
 		latencyTests = latencyData.measurements;
@@ -814,6 +884,7 @@ void OpenMeasurements()
 			return;
 
 		RecalculateStats(true);
+		auto x = 0;
 	}
 
 	// Add this to preferences or smth
@@ -1155,19 +1226,19 @@ int OnGui()
 			{
 				ImGui::BeginChild("Style", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true);
 
-				ImGui::ColorEdit4("Main Color", accentColor);
+				ImGui::ColorEdit4("Main Color", currentUserData.style.mainColor);
 
 				ImGui::PushID(02);
-				ImGui::SliderFloat("Brightness", &accentBrightness, -0.5f, 0.5f);
-				REVERT(&accentBrightness, accentBrightnessBak);
+				ImGui::SliderFloat("Brightness", &currentUserData.style.mainColorBrightness, -0.5f, 0.5f);
+				REVERT(&currentUserData.style.mainColorBrightness, backupUserData.style.mainColorBrightness);
 				ImGui::PopID();
 
-				auto _accentColor = ImVec4(*(ImVec4*)accentColor);
-				auto darkerAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - accentBrightness);
-				auto darkestAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - accentBrightness * 2);
+				auto _accentColor = ImVec4(*(ImVec4*)currentUserData.style.mainColor);
+				auto darkerAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - currentUserData.style.mainColorBrightness);
+				auto darkestAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - currentUserData.style.mainColorBrightness * 2);
 
 				// Alpha has to be set separatly, because it also gets multiplied times brightness.
-				auto alphaAccent = ImVec4(*(ImVec4*)accentColor).w;
+				auto alphaAccent = ImVec4(*(ImVec4*)currentUserData.style.mainColor).w;
 				_accentColor.w = alphaAccent;
 				darkerAccent.w = alphaAccent;
 				darkestAccent.w = alphaAccent;
@@ -1184,18 +1255,18 @@ int OnGui()
 				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
 
 
-				ImGui::ColorEdit4("Font Color", fontColor);
+				ImGui::ColorEdit4("Font Color", currentUserData.style.fontColor);
 
 				ImGui::PushID(12);
-				ImGui::SliderFloat("Brightness", &fontBrightness, -1.0f, 1.0f, "%.3f");
-				REVERT(&fontBrightness, fontBrightnessBak);
+				ImGui::SliderFloat("Brightness", &currentUserData.style.fontColorBrightness, -1.0f, 1.0f, "%.3f");
+				REVERT(&currentUserData.style.fontColorBrightness, backupUserData.style.fontColorBrightness);
 				ImGui::PopID();
 
-				auto _fontColor = ImVec4(*(ImVec4*)fontColor);
-				auto darkerFont = ImVec4(*(ImVec4*)&_fontColor) * (1 - fontBrightness);
+				auto _fontColor = ImVec4(*(ImVec4*)currentUserData.style.fontColor);
+				auto darkerFont = ImVec4(*(ImVec4*)&_fontColor) * (1 - currentUserData.style.fontColorBrightness);
 
 				// Alpha has to be set separatly, because it also gets multiplied times brightness.
-				auto alphaFont = ImVec4(*(ImVec4*)fontColor).w;
+				auto alphaFont = ImVec4(*(ImVec4*)currentUserData.style.fontColor).w;
 				_fontColor.w = alphaFont;
 				darkerFont.w = alphaFont;
 
@@ -1211,6 +1282,14 @@ int OnGui()
 				//memcpy(&colors, &accentColor, colorSize);
 				//memcpy(&colors[1], &fontColor, colorSize);
 				//ApplyStyle(colors, brightnesses);
+
+				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
+
+
+				ImGui::ColorEdit4("Int. Plot", currentUserData.style.internalPlotColor);
+				ImGui::ColorEdit4("Ext. Plot", currentUserData.style.externalPlotColor);
+				ImGui::ColorEdit4("Input Plot", currentUserData.style.inputPlotColor);
+
 				ApplyCurrentStyle();
 
 
@@ -1219,7 +1298,7 @@ int OnGui()
 
 				//ImGui::PushFont(io.Fonts->Fonts[fontIndex[selectedFont]]);
 				// This has to be done manually (instead of ImGui::Combo()) to be able to change the fonts of each selectable to a corresponding one.
-				if (ImGui::BeginCombo("Font", fonts[selectedFont]))
+				if (ImGui::BeginCombo("Font", fonts[currentUserData.style.selectedFont]))
 				{
 					for (int i = 0; i < (io.Fonts->Fonts.Size / 2) + 1; i++)
 					{
@@ -1228,16 +1307,16 @@ int OnGui()
 
 						ImGui::PushFont(io.Fonts->Fonts[fontIndex[i]]);
 
-						bool isSelected = (selectedFont == i);
+						bool isSelected = (currentUserData.style.selectedFont == i);
 						if (ImGui::Selectable(fonts[i], isSelected, 0, { 0, 0 }, style.FrameRounding))
 						{
-							if (selectedFont != i) {
+							if (currentUserData.style.selectedFont != i) {
 								io.FontDefault = io.Fonts->Fonts[fontIndex[i]];
 								if (auto _boldFont = GetFontBold(i); _boldFont != nullptr)
 									boldFont = _boldFont;
 								else
 									boldFont = io.Fonts->Fonts[fontIndex[i]];
-								selectedFont = i;
+								currentUserData.style.selectedFont = i;
 							}
 						}
 						ImGui::PopFont();
@@ -1246,13 +1325,13 @@ int OnGui()
 				}
 				//ImGui::PopFont();
 
-				bool hasFontSizeChanged = ImGui::SliderFloat("Font Size", &fontSize, 0.5f, 2, "%.2f");
-				REVERT(&fontSize, fontSizeBak);
+				bool hasFontSizeChanged = ImGui::SliderFloat("Font Size", &currentUserData.style.fontSize, 0.5f, 2, "%.2f");
+				REVERT(&currentUserData.style.fontSize, backupUserData.style.fontSize);
 				if (hasFontSizeChanged || ImGui::IsItemClicked(1))
 				{
 					for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 					{
-						io.Fonts->Fonts[i]->Scale = fontSize;
+						io.Fonts->Fonts[i]->Scale = currentUserData.style.fontSize;
 					}
 				}
 
@@ -1266,17 +1345,22 @@ int OnGui()
 				if (ImGui::BeginChild("Performance", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true))
 				{
 					auto performanceAvail = ImGui::GetContentRegionAvail();
-					ImGui::Checkbox("###LockGuiFpsCB", &lockGuiFps);
+					ImGui::Checkbox("###LockGuiFpsCB", &currentUserData.performance.lockGuiFps);
 					TOOLTIP("It's strongly recommended to keep GUI FPS locked for the best performance");
 
-					ImGui::BeginDisabled(!lockGuiFps);
+					ImGui::BeginDisabled(!currentUserData.performance.lockGuiFps);
 					ImGui::SameLine();
 					ImGui::PushItemWidth(performanceAvail.x - ImGui::GetItemRectSize().x - style.FramePadding.x * 3 - ImGui::CalcTextSize("GUI Refresh Rate").x);
 					//ImGui::SliderInt("GUI FPS", &guiLockedFps, 30, 360, "%.1f");
-					ImGui::DragInt("GUI Refresh Rate", &guiLockedFps, .5f, 30, 480);
-					REVERT(&guiLockedFps, guiLockedFpsBak);
+					ImGui::DragInt("GUI Refresh Rate", &currentUserData.performance.guiLockedFps, .5f, 30, 480);
+					REVERT(&currentUserData.performance.guiLockedFps, backupUserData.performance.guiLockedFps);
 					ImGui::PopItemWidth();
 					ImGui::EndDisabled();
+
+					ImGui::Spacing();
+
+					ImGui::Checkbox("Show Plots", &currentUserData.performance.showPlots);
+					TOOLTIP("Plots can have a small impact on the performance");
 
 					ImGui::EndChild();
 
@@ -1529,8 +1613,36 @@ int OnGui()
 		ImGui::PopFont();
 	}
 
-	ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return (float)((LatencyReading*)data)->timeInternal; }, latencyTests.data(), latencyTests.size());
-	//ImGui::PlotLines("FPS Chart", [](void* data, int idx) { return sinf(float(latencyTests[idx % 10].timeInternal) / 1000); }, frames, latencyTests.size());
+	if (currentUserData.performance.showPlots)
+	{
+		auto plotsAvail = ImGui::GetContentRegionAvail();
+		auto plotHeight = min(max((plotsAvail.y - (4 * style.FramePadding.y)) / 4, 40), 100);
+		// Separate Plots
+		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
+		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return latencyTests[idx].timeInternal / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
+		ImGui::PlotLines("External Latency", [](void* data, int idx) { return (float)latencyTests[idx].timeExternal; }, latencyTests.data(), latencyTests.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
+		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return latencyTests[idx].timePing / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PopStyleColor(6);
+
+		// Combined Plots
+		auto startCursorPos = ImGui::GetCursorPos();
+		ImGui::SetCursorPos(startCursorPos);
+		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
+		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return latencyTests[idx].timeInternal / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, latencyStats.inputLatency.lowest / 1000, latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
+		ImGui::PushStyleColor(ImGuiCol_Border, { 0,0,0,0 });
+		ImGui::SetCursorPos(startCursorPos);
+		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
+		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)latencyTests[idx].timeExternal; }, latencyTests.data(), latencyTests.size(), 0, NULL, latencyStats.inputLatency.lowest / 1000, latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+
+		ImGui::SetCursorPos(startCursorPos);
+		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
+		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return latencyTests[idx].timePing / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, latencyStats.inputLatency.lowest / 1000, latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PopStyleColor(8);
+	}
 
 	ImGui::EndChild();
 
@@ -1683,8 +1795,8 @@ void GotSerialChar(char c)
 	static BYTE resultBuffer[5]{0};
 	static BYTE resultNum = 0;
 
-	static uint64_t internalStartTime = 0;
-	static uint64_t internalEndTime = 0;
+	static std::chrono::steady_clock::time_point internalStartTime;
+	static std::chrono::steady_clock::time_point internalEndTime;
 
 	static uint64_t pingStartTime = 0;
 
@@ -1694,7 +1806,7 @@ void GotSerialChar(char c)
 		// Input (button press) detected (l for light)
 		if (c == 'l')
 		{
-			internalStartTime = micros();
+			internalStartTime = std::chrono::high_resolution_clock::now();
 			printf("waiting for results\n");
 			serialStatus = Status_WaitingForResult;
 
@@ -1721,13 +1833,13 @@ void GotSerialChar(char c)
 		}
 		break;
 	case Status_WaitingForResult:
-		internalEndTime = micros();
+		internalEndTime = std::chrono::high_resolution_clock::now();
 		// e for end (end of the numbers)
 		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added.
 		if (c == 'e')
 		{
 			// Because we are subtracting 2 similar unsigned longs longs, we dont need another unsigned long long, we just need and int
-			unsigned int internalTime = internalEndTime - internalStartTime;
+			unsigned int internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
 			unsigned int externalTime = 0;
 			// Convert the byte array to int
 			for (int i = 0; i < resultNum; i++)
@@ -2053,10 +2165,12 @@ bool OnExit()
 }
 
 // Main code
-int main(int, char**)
+int main(int args, char** argv)
 {
 	hwnd = GUI::Setup(OnGui);
 	GUI::onExitFunc = OnExit;
+
+	localPath = argv[0];
 
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
@@ -2088,54 +2202,64 @@ int main(int, char**)
 		//accentBrightness = brightnesses[0];
 		//fontBrightness = brightnesses[1];
 
-		memcpy(&accentColorBak, &accentColor, colorSize);
-		memcpy(&fontColorBak, &fontColor, colorSize);
+		//memcpy(&accentColorBak, &accentColor, colorSize);
+		//memcpy(&fontColorBak, &fontColor, colorSize);
 
-		accentBrightnessBak = accentBrightness;
-		fontBrightnessBak = fontBrightness;
+		//accentBrightnessBak = accentBrightness;
+		//fontBrightnessBak = fontBrightness;
 
-		selectedFontBak = selectedFont;
-		fontSizeBak = fontSize;
+		//selectedFontBak = selectedFont;
+		//fontSizeBak = fontSize;
 
-		GUI::LoadFonts(fontSize);
+		//guiLockedFpsBak = guiLockedFps;
+		//lockGuiFpsBak = lockGuiFps;
+
+		//showPlotsBak = showPlots;
+
+		backupUserData = currentUserData;
+
+		GUI::LoadFonts(currentUserData.style.fontSize);
 
 		for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 		{
-			io.Fonts->Fonts[i]->Scale = fontSize;
+			io.Fonts->Fonts[i]->Scale = currentUserData.style.fontSize;
 		}
-		io.FontDefault = io.Fonts->Fonts[fontIndex[selectedFont]];
-		auto _boldFont = GetFontBold(selectedFont);
+
+		io.FontDefault = io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]];
+
+		auto _boldFont = GetFontBold(currentUserData.style.selectedFont);
+
 		if (_boldFont != nullptr)
-		{
 			boldFont = _boldFont;
-			boldFontBak = boldFont;
-		}
 		else
-			boldFont = io.Fonts->Fonts[fontIndex[selectedFont]];
+			boldFont = io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]];
 
-		boldFontBak = boldFont;
-
-		guiLockedFpsBak = guiLockedFps;
-		lockGuiFpsBak = lockGuiFps;
+		//boldFontBak = boldFont;
 	}
 	else
 	{
 		auto& styleColors = ImGui::GetStyle().Colors;
-		memcpy(&accentColor, &(styleColors[ImGuiCol_Header]), colorSize);
-		memcpy(&fontColor, &(styleColors[ImGuiCol_Text]), colorSize);
+		memcpy(&currentUserData.style.mainColor, &(styleColors[ImGuiCol_Header]), colorSize);
+		memcpy(&currentUserData.style.fontColor, &(styleColors[ImGuiCol_Text]), colorSize);
 
-		memcpy(&accentColorBak, &(styleColors[ImGuiCol_Header]), colorSize);
-		memcpy(&fontColorBak, &(styleColors[ImGuiCol_Text]), colorSize);
+		memcpy(&backupUserData.style.mainColor, &(styleColors[ImGuiCol_Header]), colorSize);
+		memcpy(&backupUserData.style.fontColor, &(styleColors[ImGuiCol_Text]), colorSize);
 
-		GUI::LoadFonts(fontSize);
+		GUI::LoadFonts(1);
 
+		currentUserData.performance.lockGuiFps = backupUserData.performance.lockGuiFps = true;
+		currentUserData.performance.showPlots = backupUserData.performance.showPlots = true;
 
 		UINT modesNum = 256;
 		DXGI_MODE_DESC monitorModes[256];
 		GetMonitorModes(monitorModes, &modesNum);
 		printf("found %u monitor modes\n", modesNum);
-		guiLockedFps = monitorModes[modesNum - 1].RefreshRate.Numerator * 2;
-		guiLockedFpsBak = guiLockedFps;
+		currentUserData.performance.guiLockedFps = monitorModes[modesNum - 1].RefreshRate.Numerator * 2;
+		backupUserData.performance.guiLockedFps = currentUserData.performance.guiLockedFps;
+
+		currentUserData.style.mainColorBrightness = backupUserData.style.mainColorBrightness = .1f;
+		currentUserData.style.fontColorBrightness = backupUserData.style.fontColorBrightness = .1f;
+		currentUserData.style.fontSize = backupUserData.style.fontSize = 1.f;
 
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
@@ -2172,7 +2296,7 @@ MainLoop:
 		//	HandleGameMode();
 
 		// GUI Loop
-		if (micros() - lastFrameGui + (lastFrameRenderTime) >= 1000000 / guiLockedFps || !lockGuiFps)
+		if ((micros() - lastFrameGui + (lastFrameRenderTime) >= 1000000 / currentUserData.performance.guiLockedFps) || !currentUserData.performance.lockGuiFps)
 		{
 			uint64_t frameStartRender = micros();
 			if (GUI_Return_Code = GUI::DrawGui())
