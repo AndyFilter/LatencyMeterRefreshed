@@ -1798,7 +1798,7 @@ void GotSerialChar(char c)
 	static std::chrono::steady_clock::time_point internalStartTime;
 	static std::chrono::steady_clock::time_point internalEndTime;
 
-	static uint64_t pingStartTime = 0;
+	static std::chrono::steady_clock::time_point pingStartTime;
 
 	switch (serialStatus)
 	{
@@ -1875,7 +1875,7 @@ void GotSerialChar(char c)
 			latencyTests.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
-			pingStartTime = micros();
+			pingStartTime = std::chrono::high_resolution_clock::now();
 			Serial::Write("p", 1);
 			serialStatus = Status_WaitingForPing;
 		}
@@ -1889,7 +1889,7 @@ void GotSerialChar(char c)
 	case Status_WaitingForPing:
 		if (c == 'b')
 		{
-			unsigned int pingTime = micros() - pingStartTime;
+			unsigned int pingTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - pingStartTime).count();
 			latencyTests[latencyTests.size() - 1].timePing = pingTime;
 
 			size_t size = latencyTests.size() - 1;
