@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <thread>
 
 namespace Serial
 {
@@ -13,4 +14,7 @@ namespace Serial
 	inline std::vector<std::string> availablePorts;
 	inline bool isConnected{false};
 	inline HANDLE hPort;
+	inline FILE* hFile;
+
+	inline std::thread ioThread;
 }

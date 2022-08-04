@@ -101,18 +101,17 @@
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <PreprocessToFile>false</PreprocessToFile>
       <AdditionalIncludeDirectories>$(DXSDK_DIR)Include</AdditionalIncludeDirectories>
-      <CallingConvention>Cdecl</CallingConvention>
+      <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>false</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>d3d11.lib;d3d11.lib;%(AdditionalDependencies);</AdditionalDependencies>
       <AdditionalLibraryDirectories>%DXSDK_DIR%/Lib/x86</AdditionalLibraryDirectories>
-      <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
+      <EntryPointSymbol>
+      </EntryPointSymbol>
     </Link>
     <ProjectReference>
       <LinkLibraryDependencies>true</LinkLibraryDependencies>

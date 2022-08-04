@@ -1787,9 +1787,13 @@ int OnGui()
 	return 0;
 }
 
+std::chrono::steady_clock::time_point lastTimeGotChar;
+
 void GotSerialChar(char c)
 {
+#ifdef _DEBUG
 	printf("Got: %c\n", c);
+#endif
 
 	// 5 numbers should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
 	static BYTE resultBuffer[5]{0};
@@ -1807,7 +1811,9 @@ void GotSerialChar(char c)
 		if (c == 'l')
 		{
 			internalStartTime = std::chrono::high_resolution_clock::now();
+#ifdef _DEBUG
 			printf("waiting for results\n");
+#endif
 			serialStatus = Status_WaitingForResult;
 
 
@@ -1849,8 +1855,9 @@ void GotSerialChar(char c)
 
 			wasMouseClickSent = false;
 			wasLMB_Pressed = false;
-
+#ifdef _DEBUG
 			printf("Final result: %i\n", externalTime);
+#endif
 			LatencyReading reading{ externalTime, internalTime };
 			size_t size = latencyTests.size();
 
@@ -1876,7 +1883,10 @@ void GotSerialChar(char c)
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
 			pingStartTime = std::chrono::high_resolution_clock::now();
-			Serial::Write("p", 1);
+			char ch = 'A';
+			Serial::Write(&ch, 1);
+			//fwrite(&ch, sizeof(char), 1, Serial::hFile);
+			//fflush(Serial::hFile);
 			serialStatus = Status_WaitingForPing;
 		}
 		else
@@ -1910,6 +1920,11 @@ void GotSerialChar(char c)
 	default:
 		break;
 	}
+
+#ifdef _DEBUG
+	printf("char receive delay: %lld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - lastTimeGotChar).count());
+#endif
+	lastTimeGotChar = std::chrono::high_resolution_clock::now();
 }
 
 // Will be removed in some later push
