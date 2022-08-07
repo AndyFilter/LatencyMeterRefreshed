@@ -1882,9 +1882,8 @@ void GotSerialChar(char c)
 			latencyTests.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
+			Serial::Write("p", 1);
 			pingStartTime = std::chrono::high_resolution_clock::now();
-			char ch = 'A';
-			Serial::Write(&ch, 1);
 			//fwrite(&ch, sizeof(char), 1, Serial::hFile);
 			//fflush(Serial::hFile);
 			serialStatus = Status_WaitingForPing;

@@ -13,7 +13,9 @@ const byte BYTES_TO_READ = 10;
 DCB serialParams;
 OVERLAPPED osReader{ 0 };
 
-char buffer[256]{"tst"};
+//char buffer[256]{ 0 };
+
+//bool isWaitingForWrite = false;
 
 static void (*OnCharReceived)(char c);
 
@@ -34,52 +36,57 @@ void Serial::FindAvailableSerialPorts()
 	}
 }
 
-void ReadIO(HANDLE hSerial, OVERLAPPED (osOverlapped), LPVOID buf)
-{
-	//static BOOL fWaitingOnRead{ FALSE };
-
-	while (true)
-	{
-		DWORD dwCommModemStatus{};
-		BYTE byte[BYTES_TO_READ]{};
-
-		DWORD dwRead = 0;
-
-		BOOL fWaitingOnRead = FALSE;
-
-		if (osOverlapped.hEvent == INVALID_HANDLE_VALUE)
-		{
-			printf("Creating a new reader Event\n");
-			osOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		}
-
-		//WaitCommEvent(hSerial, &dwCommModemStatus, &osOverlapped);
-
-		//if(dwCommModemStatus & EV_RXCHAR)
-		//{ 
-		//	if (ReadFile(hSerial, byte, BYTES_TO_READ, &dwRead, &osOverlapped))
-		//	{
-		//		if (dwRead)
-		//			strcat_s((char*)buf, 256, (char*)byte);
-		//	}
-		//	else
-		//	{
-		//		char lastError[1024];
-		//		FormatMessage(
-		//			FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-		//			NULL,
-		//			GetLastError(),
-		//			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-		//			lastError,
-		//			1024,
-		//			NULL);
-		//		printf(lastError);
-		//	}
-		//}
-
+//void ReadIO(HANDLE hSerial, LPOVERLAPPED(osOverlapped), LPVOID buf)
+//{
+//	static bool wasLastTimeAnswer{ false };
+//
+//	while (true)
+//	{
+//		if (isWaitingForWrite)
+//			continue;
+//		DWORD dwCommModemStatus{};
+//		BYTE byte[BYTES_TO_READ]{};
+//
+//		DWORD dwRead = 0;
+//
+//		BOOL fWaitingOnRead = FALSE;
+//
+//		char* text = (char*)buf;
+//
+//		if (osOverlapped->hEvent == INVALID_HANDLE_VALUE)
+//		{
+//			printf("Creating a new reader Event\n");
+//			osOverlapped->hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+//		}
+//
+//		//WaitCommEvent(hSerial, &dwCommModemStatus, osOverlapped);
+//
+//		//if(dwCommModemStatus & EV_RXCHAR)
+//		//{ 
+//		//	if (ReadFile(hSerial, byte, BYTES_TO_READ, &dwRead, osOverlapped))
+//		//	{
+//		//		if (dwRead)
+//		//			strcat_s((char*)buf, 256, (char*)byte);
+//		//		auto x = 0;
+//		//	}
+//		//	else
+//		//	{
+//		//		char lastError[1024];
+//		//		FormatMessage(
+//		//			FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+//		//			NULL,
+//		//			GetLastError(),
+//		//			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+//		//			lastError,
+//		//			1024,
+//		//			NULL);
+//		//		printf(lastError);
+//		//	}
+//		//}
+//
 //		// Create the overlapped event. Must be closed before exiting to avoid a handle leak.
 //		if (!fWaitingOnRead) {
-//			if (!ReadFile(hSerial, byte, BYTES_TO_READ, &dwRead, &osOverlapped)) {
+//			if (!ReadFile(hSerial, byte, BYTES_TO_READ, &dwRead, osOverlapped)) {
 //				if (GetLastError() != ERROR_IO_PENDING) // read not delayed ?
 //					printf("error in comm");
 //				else
@@ -88,22 +95,22 @@ void ReadIO(HANDLE hSerial, OVERLAPPED (osOverlapped), LPVOID buf)
 //			else {
 //				// read completed immediately
 //				if (dwRead)
-//					strcat_s((char*)buf, 256,(char*)byte);
-//					//strcpy_s((char*)buf, dwRead, (char*)byte);
+//					strcat_s((char*)buf, 256, (char*)byte);
+//				//strcpy_s((char*)buf, dwRead, (char*)byte);
 //			}
 //		}
 //
 //
-//#define READ_TIMEOUT 10 // milliseconds
+//#define READ_TIMEOUT 0 // milliseconds
 //
 //		DWORD dwRes;
 //		if (fWaitingOnRead) {
-//			dwRes = WaitForSingleObject(osOverlapped.hEvent, READ_TIMEOUT);
+//			dwRes = WaitForSingleObject(osOverlapped->hEvent, READ_TIMEOUT);
 //			switch (dwRes)
 //			{
 //				// Read completed.
 //			case WAIT_OBJECT_0:
-//				if (!GetOverlappedResult(hSerial, &osOverlapped, &dwRead,
+//				if (!GetOverlappedResult(hSerial, osOverlapped, &dwRead,
 //					FALSE))
 //					printf("error in comm");
 //				// Error in communications; report it.
@@ -119,134 +126,85 @@ void ReadIO(HANDLE hSerial, OVERLAPPED (osOverlapped), LPVOID buf)
 //				break;
 //			}
 //		}
-
-
-			if (!fWaitingOnRead) {
-				// Issue read operation.
-				if (!ReadFile(hSerial, byte, BYTES_TO_READ, &dwRead, &osOverlapped)) {
-					if (GetLastError() != ERROR_IO_PENDING)     // read not delayed?
-						printf("comm error");
-					   // Error in communications; report it.
-					else
-						fWaitingOnRead = TRUE;
-				}
-				else {
-					// read completed immediately
-					strcat_s((char*)buf, 256, (char*)byte);
-				}
-			}
-
-
-#define READ_TIMEOUT      10      // milliseconds
-
-			DWORD dwRes;
-
-			if (fWaitingOnRead) {
-				dwRes = WaitForSingleObject(osOverlapped.hEvent, READ_TIMEOUT);
-				switch (dwRes)
-				{
-					// Read completed.
-				case WAIT_OBJECT_0:
-					if (!GetOverlappedResult(hSerial, &osOverlapped, &dwRead, FALSE))
-						printf("comm error");
-						// Error in communications; report it.
-					else
-						// Read completed successfully.
-						strcat_s((char*)buf, 256, (char*)byte);
-
-					//  Reset flag so that another opertion can be issued.
-					fWaitingOnRead = FALSE;
-					break;
-
-				case WAIT_TIMEOUT:
-					// Operation isn't complete yet. fWaitingOnRead flag isn't
-					// changed since I'll loop back around, and I don't want
-					// to issue another read until the first one finishes.
-					//
-					// This is a good time to do some background work.
-					break;
-
-				default:
-					// Error in the WaitForSingleObject; abort.
-					// This indicates a problem with the OVERLAPPED structure's
-					// event handle.
-					break;
-				}
-			}
-
-
-	}
-}
-
-void ReadIO1()
-{
-	DWORD dwCommModemStatus{};
-	BYTE byte[BYTES_TO_READ]{};
-
-	DWORD dwRead = 0;
-	static BOOL fWaitingOnRead{ FALSE };
-
-	if (osReader.hEvent == INVALID_HANDLE_VALUE)
-	{
-		printf("Creating a new reader Event\n");
-		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	}
-
-	// Create the overlapped event. Must be closed before exiting
-	// to avoid a handle leak.
-	if (!fWaitingOnRead) {
-		if (!ReadFile(Serial::hPort, byte, BYTES_TO_READ, &dwRead, &osReader)) {
-			if (GetLastError() != ERROR_IO_PENDING) // read not delayed ?
-				printf("error in comm");
-			else
-				fWaitingOnRead = TRUE;
-		}
-		else {
-			// read completed immediately
-			if (dwRead)
-				if (OnCharReceived)
-				{
-					for (int i = 0; i < dwRead; i++)
-					{
-						OnCharReceived(byte[i]);
-					}
-				}
-		}
-	}
-
-
-#define READ_TIMEOUT 10 // milliseconds
-	DWORD dwRes;
-	if (fWaitingOnRead) {
-		dwRes = WaitForSingleObject(osReader.hEvent, READ_TIMEOUT);
-		switch (dwRes)
-		{
-			// Read completed.
-		case WAIT_OBJECT_0:
-			if (!GetOverlappedResult(Serial::hPort, &osReader, &dwRead,
-				FALSE))
-				printf("error in comm2");
-				// Error in communications; report it.
-			else
-				// Read completed successfully.
-				if (dwRead)
-					if (OnCharReceived)
-					{
-						for (int i = 0; i < dwRead; i++)
-						{
-							OnCharReceived(byte[i]);
-						}
-					}
-				fWaitingOnRead = FALSE;
-			break;
-		case WAIT_TIMEOUT:
-				break;
-		default:
-				break;
-		}
-	}
-
-}
+//
+//		if (dwRead)
+//		{
+//			wasLastTimeAnswer = false;
+//			for (int i = 0; i < dwRead; i++)
+//			{
+//				if (byte[i] == 'e')
+//				{
+//					isWaitingForWrite = true;
+//					wasLastTimeAnswer = true;
+//					break;
+//				}
+//			}
+//		}
+//
+//		if (wasLastTimeAnswer)
+//		{
+//			CancelIoEx(hSerial, osOverlapped);
+//			Sleep(10);
+//			isWaitingForWrite = false;
+//		}
+//
+//
+//		//			if (!fWaitingOnRead) {
+//		//				// Issue read operation.
+//		//				if (!ReadFile(hSerial, byte, BYTES_TO_READ, &dwRead, &osOverlapped)) {
+//		//					if (GetLastError() != ERROR_IO_PENDING)     // read not delayed?
+//		//						printf("comm error");
+//		//					   // Error in communications; report it.
+//		//					else
+//		//						fWaitingOnRead = TRUE;
+//		//				}
+//		//				else {
+//		//					// read completed immediately
+//		//					strcat_s((char*)buf, 256, (char*)byte);
+//		//				}
+//		//			}
+//		//
+//		//
+//		//#define READ_TIMEOUT      10      // milliseconds
+//		//
+//		//			DWORD dwRes;
+//		//
+//		//			if (fWaitingOnRead) {
+//		//				dwRes = WaitForSingleObject(osOverlapped.hEvent, READ_TIMEOUT);
+//		//				switch (dwRes)
+//		//				{
+//		//					// Read completed.
+//		//				case WAIT_OBJECT_0:
+//		//					if (!GetOverlappedResult(hSerial, &osOverlapped, &dwRead, FALSE))
+//		//						printf("comm error");
+//		//						// Error in communications; report it.
+//		//					else
+//		//						// Read completed successfully.
+//		//						strcat_s((char*)buf, 256, (char*)byte);
+//		//
+//		//					//  Reset flag so that another opertion can be issued.
+//		//					fWaitingOnRead = FALSE;
+//		//					break;
+//		//
+//		//				case WAIT_TIMEOUT:
+//		//					// Operation isn't complete yet. fWaitingOnRead flag isn't
+//		//					// changed since I'll loop back around, and I don't want
+//		//					// to issue another read until the first one finishes.
+//		//					//
+//		//					// This is a good time to do some background work.
+//		//					break;
+//		//
+//		//				default:
+//		//					// Error in the WaitForSingleObject; abort.
+//		//					// This indicates a problem with the OVERLAPPED structure's
+//		//					// event handle.
+//		//					break;
+//		//				}
+//		//			}
+//
+//
+//	}
+//}
 
 bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 {
@@ -296,24 +254,24 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	if (!SetCommState(hPort, &serialParams))
 		return false;
 
-	//COMMTIMEOUTS timeout = { 0 };
-	//timeout.ReadIntervalTimeout = MAXDWORD;
-	//timeout.ReadTotalTimeoutConstant = 0;
-	//timeout.ReadTotalTimeoutMultiplier = 0;
-	//timeout.WriteTotalTimeoutConstant = 0;
-	//timeout.WriteTotalTimeoutMultiplier = 0;
+	COMMTIMEOUTS timeout = { 0 };
+	timeout.ReadIntervalTimeout = MAXDWORD;
+	timeout.ReadTotalTimeoutConstant = 0;
+	timeout.ReadTotalTimeoutMultiplier = 0;
+	timeout.WriteTotalTimeoutConstant = 0;
+	timeout.WriteTotalTimeoutMultiplier = 0;
 
-	//if (!SetCommTimeouts(hPort, &timeout))
-	//	return false;
+	if (!SetCommTimeouts(hPort, &timeout))
+		return false;
 
 	//ReadIO(hPort, &osReader, buffer);
 
 
 	PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
 
-	//SetCommMask(hPort, EV_RXCHAR | EV_ERR);
+	SetCommMask(hPort, EV_RXCHAR | EV_ERR);
 
-	//ioThread = std::thread(ReadIO, hPort, osReader, &buffer);
+	//ioThread = std::thread(ReadIO, hPort, &osReader, &buffer);
 
 	isConnected = true;
 	return true;
@@ -324,32 +282,28 @@ void Serial::HandleInput()
 	if (!isConnected || !hPort)
 		return;
 
-	//ReadIO1();
-
 	//if (OnCharReceived)
 	//{
 	//	for (int i = 0; i < strlen(buffer); i++)
 	//	{
 	//		OnCharReceived(buffer[i]);
 	//	}
-	//	if(strlen(buffer) > 0)
+	//	if (strlen(buffer) > 0)
 	//		printf("buffer: %s\n", buffer);
-
 	//	memset(buffer, 0, 256);
 	//}
-
 	//return;
 
 	DWORD dwCommModemStatus{};
 	BYTE byte[BYTES_TO_READ]{};
 
 	DWORD dwRead = 0;
-	BOOL fWaitingOnRead{ FALSE };
+	static BOOL fWaitingOnRead{ FALSE };
 
 
 
 	//dwRead = fread(&byte, 1, sizeof(byte), hFile);
- 	//hFile.read((char*)byte, BYTES_TO_READ);
+	//hFile.read((char*)byte, BYTES_TO_READ);
 
 	//if (dwRead)
 	//	if (OnCharReceived)
@@ -457,9 +411,40 @@ void Serial::HandleInput()
 		}
 	}
 
+	DWORD dwRes;
+	if (fWaitingOnRead) {
+		dwRes = WaitForSingleObject(osReader.hEvent, 1);
+		switch (dwRes)
+		{
+			// Read completed.
+		case WAIT_OBJECT_0:
+			if (!GetOverlappedResult(hPort, &osReader, &dwRead,	FALSE))
+				printf("error in comm");
+			// Error in communications; report it.
+			else
+			{
+				// read completed immediately
+				if (dwRead)
+					if (OnCharReceived)
+					{
+						for (int i = 0; i < dwRead; i++)
+						{
+							OnCharReceived(byte[i]);
+						}
+					}
+			}
+			fWaitingOnRead = FALSE;
+			break;
+		case WAIT_TIMEOUT:
+			break;
+		default:
+			break;
+		}
+	}
 
-	// Create the overlapped event. Must be closed before exiting
-	// to avoid a handle leak.
+
+//	// Create the overlapped event. Must be closed before exiting
+//	// to avoid a handle leak.
 //	if (!fWaitingOnRead) {
 //		if (!ReadFile(hPort, byte, BYTES_TO_READ, &dwRead, &osReader)) {
 //			if (GetLastError() != ERROR_IO_PENDING) // read not delayed ?
@@ -467,21 +452,10 @@ void Serial::HandleInput()
 //			else
 //				fWaitingOnRead = TRUE;
 //		}
-//		else {
-//			// read completed immediately
-//			if (dwRead)
-//				if (OnCharReceived)
-//				{
-//					for (int i = 0; i < dwRead; i++)
-//					{
-//						OnCharReceived(byte[i]);
-//					}
-//				}
-//		}
 //	}
 //
 //
-//#define READ_TIMEOUT 10 // milliseconds
+//#define READ_TIMEOUT 0 // milliseconds
 //	DWORD dwRes;
 //	if (fWaitingOnRead) {
 //		dwRes = WaitForSingleObject(osReader.hEvent, READ_TIMEOUT);
@@ -489,38 +463,114 @@ void Serial::HandleInput()
 //		{
 //			// Read completed.
 //		case WAIT_OBJECT_0:
-//			if (!GetOverlappedResult(hPort, &osReader, &dwRead,
-//				FALSE))
+//			if (!GetOverlappedResult(hPort, &osReader, &dwRead,	FALSE))
 //				printf("error in comm");
-//				// Error in communications; report it.
-//			else
-//				// Read completed successfully.
-//				if (dwRead)
-//					if (OnCharReceived)
-//					{
-//						for (int i = 0; i < dwRead; i++)
-//						{
-//							OnCharReceived(byte[i]);
-//						}
-//					}
-//				fWaitingOnRead = FALSE;
+//			// Error in communications; report it.
+//			fWaitingOnRead = FALSE;
 //			break;
 //		case WAIT_TIMEOUT:
-//				break;
+//			break;
 //		default:
-//				break;
+//			break;
 //		}
 //	}
+//
+//	isWaitingForWrite = false;
+//	for (int i = 0; i < dwRead; i++)
+//	{
+//		if (byte[i] == 'e')
+//		{
+//			isWaitingForWrite = true;
+//		}
+//	}
+//
+//	if (dwRead)
+//		if (OnCharReceived)
+//		{
+//			for (int i = 0; i < dwRead; i++)
+//			{
+//				OnCharReceived(byte[i]);
+//			}
+//		}
+}
+
+BOOL WriteABuffer(char* lpBuf, DWORD dwToWrite)
+{
+	DWORD dwWritten;
+	DWORD dwRes{ 0 };
+	BOOL fRes{};
+	// Create this write operation's OVERLAPPED structure's hEvent.
+	// Issue write.
+	if (!WriteFile(Serial::hPort, lpBuf, dwToWrite, &dwWritten,
+		&osReader)) {
+		if (GetLastError() != ERROR_IO_PENDING) {
+			// WriteFile failed, but isn't delayed. Report error and abort.
+			fRes = FALSE;
+		}
+		else
+			// Write is pending.
+			dwRes = WaitForSingleObject(osReader.hEvent,
+				1);
+		switch (dwRes)
+		{
+			// OVERLAPPED structure's event has been signaled.
+		case WAIT_OBJECT_0:
+			if (!GetOverlappedResult(Serial::hPort, &osReader, &dwWritten, FALSE))
+				fRes = FALSE;
+			else
+				// Write operation completed successfully.
+				fRes = TRUE;
+			break;
+		default:
+			// An error has occurred in WaitForSingleObject.
+				// This usually indicates a problem with the
+				// OVERLAPPED structure's event handle.
+			fRes = FALSE;
+			break;
+		}
+	}
+	return fRes;
 }
 
 bool Serial::Write(const char* c, size_t size)
 {
 	DWORD dwRead;
-	if (!WriteFile(hPort, c, size, &dwRead, &osReader)) {
+	//return WriteFile(hPort, c, size, &dwRead, &osReader);
+	auto res = WriteABuffer((char*)c, size);
+	if (!res)
+	{
+		char lastError[1024];
+		FormatMessage(
+			FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+			NULL,
+			GetLastError(),
+			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+			lastError,
+			1024,
+			NULL);
+		printf(lastError);
 		ClearCommError(hPort, NULL, NULL);
-		return false;
 	}
-	return true;
+	return res;
+	////tryingToWrite = true;
+	////CancelIoEx(hPort, &osReader);
+	////CancelIo(&osReader);
+	//if (!WriteFile(hPort, c, size, &dwRead, &osReader)) {
+	//	char lastError[1024];
+	//	FormatMessage(
+	//		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+	//		NULL,
+	//		GetLastError(),
+	//		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+	//		lastError,
+	//		1024,
+	//		NULL);
+	//	printf(lastError);
+	//	ClearCommError(hPort, NULL, NULL);
+	//	return false;
+	//}
+	////tryingToWrite = false;
+	//return true;
 }
 
 void Serial::Close()

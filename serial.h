@@ -16,5 +16,5 @@ namespace Serial
 	inline HANDLE hPort;
 	inline FILE* hFile;
 
-	inline std::thread ioThread;
+	//inline std::thread ioThread;
 }
