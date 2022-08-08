@@ -8197,9 +8197,8 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
 
     // Calculate tab contents size
     ImVec2 size = TabItemCalcSize(label, p_open != NULL);
-    tab->RequestedWidth = -1.0f;
     if (g.NextItemData.Flags & ImGuiNextItemDataFlags_HasWidth)
-        size.x = tab->RequestedWidth = g.NextItemData.Width;
+        size.x = tab->RequestedWidth = tab->Width = g.NextItemData.Width;
     if (tab_is_new)
         tab->Width = size.x;
     tab->ContentWidth = size.x;

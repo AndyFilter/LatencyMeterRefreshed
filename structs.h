@@ -32,7 +32,18 @@ struct LatencyStats
 struct LatencyData
 {
 	std::vector<LatencyReading> measurements;
-	char note[1000];
+	char note[1000]{ 0 };
+};
+
+struct TabInfo
+{
+	LatencyData latencyData {};
+	LatencyStats latencyStats {};
+
+	bool isSaved = true;
+	char savePath[260]{ 0 };
+
+	char name[32]{ "Tab " };
 };
 
 
@@ -59,6 +70,8 @@ struct PerformanceData
 	int guiLockedFps;
 
 	bool showPlots;
+
+	unsigned int VSync;
 };
 
 struct UserData

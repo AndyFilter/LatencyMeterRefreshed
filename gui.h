@@ -11,6 +11,9 @@ namespace GUI
 
 	inline IDXGISwapChain* g_pSwapChain = NULL;
 	inline bool (*onExitFunc)();
+
+	inline UINT MAX_SUPPORTED_FRAMERATE;
+	inline UINT (*VSyncFrame);
 }
 
 #define TOOLTIP(...)					\
@@ -19,7 +22,7 @@ namespace GUI
 
 #define TOOLTIPFONT(...)														\
    	if (ImGui::IsItemHovered())	{												\
-		ImGui::PushFont(io.Fonts->Fonts[fontIndex[selectedFont]]);	\
+		ImGui::PushFont(io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]]);	\
 		ImGui::SetTooltip(__VA_ARGS__);											\
 		ImGui::PopFont(); } 
 

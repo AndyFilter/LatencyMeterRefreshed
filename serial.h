@@ -3,6 +3,11 @@
 #include <vector>
 #include <thread>
 
+#include <io.h>
+#include <fcntl.h>
+
+#define BufferedSerialComm
+
 namespace Serial
 {
 	bool Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c) = nullptr);
@@ -15,6 +20,11 @@ namespace Serial
 	inline bool isConnected{false};
 	inline HANDLE hPort;
 	inline FILE* hFile;
+
+#ifdef BufferedSerialComm
+	inline int fd = -1;
+#endif // BufferedSerialComm
+
 
 	//inline std::thread ioThread;
 }

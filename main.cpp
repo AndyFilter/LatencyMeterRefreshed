@@ -31,33 +31,31 @@ unsigned long long totalFrames = 0;
 const int styleColorNum = 2;
 const unsigned int colorSize = 16;
 
-
-float accentColor[4];
-float accentBrightness = 0.1f;
-
-float fontColor[4];
-float fontBrightness = 0.1f;
-
-int selectedFont = 0;
-float fontSize = 1.f;
 ImFont* boldFont;
 
+//float accentColor[4];
+//float accentBrightness = 0.1f;
+//
+//float fontColor[4];
+//float fontBrightness = 0.1f;
+//
+//int selectedFont = 0;
+//float fontSize = 1.f;
 
-float internalPlotColor[4] {0.1f, 0.8f, 0.2f, 1.f};
-float externalPlotColor[4] { 0.3f, 0.3f, 0.9f, 1.f };
-float inputPlotColor[4] { 0.8f, 0.1f, 0.2f, 1.f };
 
-
-float accentColorBak[4];
-float accentBrightnessBak = 0.1f;
-
-float fontColorBak[4];
-float fontBrightnessBak = 0.1f;
-
-int selectedFontBak = 0;
-float fontSizeBak = 1.f;
-//ImFont* boldFontBak;
-
+//float internalPlotColor[4] {0.1f, 0.8f, 0.2f, 1.f};
+//float externalPlotColor[4] { 0.3f, 0.3f, 0.9f, 1.f };
+//float inputPlotColor[4] { 0.8f, 0.1f, 0.2f, 1.f };
+//
+//
+//float accentColorBak[4];
+//float accentBrightnessBak = 0.1f;
+//
+//float fontColorBak[4];
+//float fontBrightnessBak = 0.1f;
+//
+//int selectedFontBak = 0;
+//float fontSizeBak = 1.f;
 //float internalPlotColorBak[4]{ 0.1f, 0.8f, 0.2f, 1.f };
 //float externalPlotColorBak[4]{ 0.3f, 0.3f, 0.9f, 1.f };
 //float inputPlotColorBak[4]{ 0.8f, 0.1f, 0.2f, 1.f };
@@ -99,17 +97,21 @@ UserData backupUserData {};
 SerialStatus serialStatus = Status_Idle;
 
 int selectedPort = 0;
-std::vector<LatencyReading> latencyTests;
+//std::vector<LatencyReading> latencyTests;
+//
+//LatencyStats latencyStats;
+//
+//char note[1000];
 
-LatencyStats latencyStats{};
 
-char notes[1000];
+std::vector<TabInfo> tabsInfo{};
 // --------
 
 
-bool isSaved = true;
+//bool isSaved = true;
+//char savePath[MAX_PATH]{ 0 };
+
 bool isExiting = false;
-char savePath[MAX_PATH]{ 0 };
 
 static ImGuiTableSortSpecs* sortSpec;
 
@@ -120,6 +122,8 @@ bool fullscreenModeClosePopup = false;
 bool isGameMode = false;
 bool wasLMB_Pressed = false;
 bool wasMouseClickSent = false;
+
+int selectedTab = 0;
 
 // Forward declaration
 void GotSerialChar(char c);
@@ -145,17 +149,54 @@ TODO:
 + Unsaved work notification
 - Custom Fonts (?)
 - Multiple tabs for measurements
+- Save Tabs
 */
 
 bool isSettingOpen = false;
-
+static LARGE_INTEGER StartingTime{ 0 };
 uint64_t micros()
 {
-	uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
-		std::chrono::high_resolution_clock::now().time_since_epoch())
-		.count();
-	static const uint64_t start{ us };
-	return us - start;
+	//auto timeNow = std::chrono::high_resolution_clock::now();
+	//uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(timeNow.time_since_epoch()).count();
+	//static const uint64_t start{ us };
+	//return us - start;
+
+	//FILETIME ft;
+	//GetSystemTimeAsFileTime(&ft);
+	//ULARGE_INTEGER li;
+	//li.LowPart = ft.dwLowDateTime;
+	//li.HighPart = ft.dwHighDateTime;
+	//unsigned long long valueAsHns = li.QuadPart;
+	//unsigned long long valueAsUs = valueAsHns / 10;
+
+	//return valueAsUs;
+
+
+	// QueryPerformance method is about 15-25% faster than std::chrono implementation of the same code
+
+	LARGE_INTEGER EndingTime, ElapsedMicroseconds;
+	LARGE_INTEGER Frequency;
+
+	QueryPerformanceFrequency(&Frequency);
+
+	// Activity to be timed
+
+	QueryPerformanceCounter(&EndingTime);
+	ElapsedMicroseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
+
+
+	//
+	// We now have the elapsed number of ticks, along with the
+	// number of ticks-per-second. We use these values
+	// to convert to the number of elapsed microseconds.
+	// To guard against loss-of-precision, we convert
+	// to microseconds *before* dividing by ticks-per-second.
+	//
+
+	ElapsedMicroseconds.QuadPart *= 1000000;
+	ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
+
+	return ElapsedMicroseconds.QuadPart;
 }
 
 void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum])
@@ -517,11 +558,14 @@ ImFont* GetFontBold(int baseFontIndex)
 // But this method would not work as expected when user reverts back the changes or sets the variable to it's original value
 bool HasConfigChanged()
 {
-	bool brightnesses = currentUserData.style.mainColorBrightness == accentBrightnessBak && currentUserData.style.fontColorBrightness == backupUserData.style.fontColorBrightness;
+	bool brightnesses = currentUserData.style.mainColorBrightness == backupUserData.style.mainColorBrightness && currentUserData.style.fontColorBrightness == backupUserData.style.fontColorBrightness;
 	bool font = currentUserData.style.selectedFont == backupUserData.style.selectedFont && currentUserData.style.fontSize == backupUserData.style.fontSize;
-	bool performance = currentUserData.performance.guiLockedFps == backupUserData.performance.guiLockedFps && currentUserData.performance.lockGuiFps == backupUserData.performance.lockGuiFps && currentUserData.performance.showPlots == backupUserData.performance.showPlots;
-	bool colors{ false };
+	bool performance = currentUserData.performance.guiLockedFps == backupUserData.performance.guiLockedFps &&
+		currentUserData.performance.lockGuiFps == backupUserData.performance.lockGuiFps &&
+		currentUserData.performance.showPlots == backupUserData.performance.showPlots &&
+		currentUserData.performance.VSync == backupUserData.performance.VSync;
 
+	bool colors{ false };
 	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
 	// (Pointers point to different addresses even tho the values at these addresses are the same)
 	for (int column = 0; column < 4; column++)
@@ -567,102 +611,102 @@ bool HasConfigChanged()
 
 void RecalculateStats(bool recalculate_Average = false)
 {
-	size_t size = latencyTests.size();
+	size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
 	if (size <= 0)
 		return;
 	if (recalculate_Average)
 	{
-		latencyStats.externalLatency.highest = 0;
-		latencyStats.internalLatency.highest = 0;
-		latencyStats.inputLatency.highest = 0;
+		tabsInfo[selectedTab].latencyStats.externalLatency.highest = 0;
+		tabsInfo[selectedTab].latencyStats.internalLatency.highest = 0;
+		tabsInfo[selectedTab].latencyStats.inputLatency.highest = 0;
 
 		unsigned int extSum = 0, intSum = 0, inpSum = 0;
 
 		for (size_t i = 0; i < size; i++)
 		{
-			auto& test = latencyTests[i];
+			auto& test = tabsInfo[selectedTab].latencyData.measurements[i];
 
 			if (i == 0)
 			{
-				latencyStats.externalLatency.lowest = test.timeExternal;
-				latencyStats.internalLatency.lowest = test.timeInternal;
-				latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
+				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			}
 
 			extSum += test.timeExternal;
 			intSum += test.timeInternal;
 			inpSum += test.timePing;
 
-			if (test.timeExternal > latencyStats.externalLatency.highest)
+			if (test.timeExternal > tabsInfo[selectedTab].latencyStats.externalLatency.highest)
 			{
-				latencyStats.externalLatency.highest = test.timeExternal;
+				tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
 			}
-			else if (test.timeExternal < latencyStats.externalLatency.lowest)
+			else if (test.timeExternal < tabsInfo[selectedTab].latencyStats.externalLatency.lowest)
 			{
-				latencyStats.externalLatency.lowest = test.timeExternal;
-			}
-
-			if (test.timeInternal > latencyStats.internalLatency.highest)
-			{
-				latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < latencyStats.internalLatency.lowest)
-			{
-				latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
 			}
 
-			if (test.timePing > latencyStats.inputLatency.highest)
+			if (test.timeInternal > tabsInfo[selectedTab].latencyStats.internalLatency.highest)
 			{
-				latencyStats.inputLatency.highest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
 			}
-			else if (test.timePing < latencyStats.inputLatency.lowest)
+			else if (test.timeInternal < tabsInfo[selectedTab].latencyStats.internalLatency.lowest)
 			{
-				latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+			}
+
+			if (test.timePing > tabsInfo[selectedTab].latencyStats.inputLatency.highest)
+			{
+				tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
+			}
+			else if (test.timePing < tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
+			{
+				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			}
 		}
 
-		latencyStats.externalLatency.average = static_cast<float>(extSum) / size;
-		latencyStats.internalLatency.average = static_cast<float>(intSum) / size;
-		latencyStats.inputLatency.average = static_cast<float>(inpSum) / size;
+		tabsInfo[selectedTab].latencyStats.externalLatency.average = static_cast<float>(extSum) / size;
+		tabsInfo[selectedTab].latencyStats.internalLatency.average = static_cast<float>(intSum) / size;
+		tabsInfo[selectedTab].latencyStats.inputLatency.average = static_cast<float>(inpSum) / size;
 	}
 	else
 	{
 		for (size_t i = 0; i < size; i++)
 		{
-			auto& test = latencyTests[i];
+			auto& test = tabsInfo[selectedTab].latencyData.measurements[i];
 
 			if (i == 0)
 			{
-				latencyStats.externalLatency.lowest = test.timeExternal;
-				latencyStats.internalLatency.lowest = test.timeInternal;
-				latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
+				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			}
 
-			if (test.timeExternal > latencyStats.externalLatency.highest)
+			if (test.timeExternal > tabsInfo[selectedTab].latencyStats.externalLatency.highest)
 			{
-				latencyStats.externalLatency.highest = test.timeExternal;
+				tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
 			}
-			else if (test.timeExternal < latencyStats.externalLatency.lowest)
+			else if (test.timeExternal < tabsInfo[selectedTab].latencyStats.externalLatency.lowest)
 			{
-				latencyStats.externalLatency.lowest = test.timeExternal;
-			}
-
-			if (test.timeInternal > latencyStats.internalLatency.highest)
-			{
-				latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < latencyStats.internalLatency.lowest)
-			{
-				latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
 			}
 
-			if (test.timePing > latencyStats.inputLatency.highest)
+			if (test.timeInternal > tabsInfo[selectedTab].latencyStats.internalLatency.highest)
 			{
-				latencyStats.inputLatency.highest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
 			}
-			else if (test.timePing < latencyStats.inputLatency.lowest)
+			else if (test.timeInternal < tabsInfo[selectedTab].latencyStats.internalLatency.lowest)
 			{
-				latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+			}
+
+			if (test.timePing > tabsInfo[selectedTab].latencyStats.inputLatency.highest)
+			{
+				tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
+			}
+			else if (test.timePing < tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
+			{
+				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			}
 		}
 	}
@@ -671,130 +715,130 @@ void RecalculateStats(bool recalculate_Average = false)
 // This code is very much unoptimized, but it has low optimization priority just because of how rarely this function is called
 void RemoveMeasurement(size_t index)
 {
-	auto result = latencyTests[index];
-	size_t size = latencyTests.size();
+	auto result = tabsInfo[selectedTab].latencyData.measurements[index];
+	size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
 	bool findMax = false, findMin = false;
 
 	// Fix stats
 	if (size > 1)
 	{
-		auto _latencyStats = latencyStats;
-		_latencyStats.externalLatency.average = ((latencyStats.externalLatency.average * size) - result.timeExternal) / (size - 1);
-		_latencyStats.internalLatency.average = ((latencyStats.internalLatency.average * size) - result.timeInternal) / (size - 1);
-		_latencyStats.inputLatency.average = ((latencyStats.inputLatency.average * size) - result.timePing) / (size - 1);
+		auto _latencyStats = tabsInfo[selectedTab].latencyStats;
+		_latencyStats.externalLatency.average = ((tabsInfo[selectedTab].latencyStats.externalLatency.average * size) - result.timeExternal) / (size - 1);
+		_latencyStats.internalLatency.average = ((tabsInfo[selectedTab].latencyStats.internalLatency.average * size) - result.timeInternal) / (size - 1);
+		_latencyStats.inputLatency.average = ((tabsInfo[selectedTab].latencyStats.inputLatency.average * size) - result.timePing) / (size - 1);
 
-		latencyStats = LatencyStats();
-		ZeroMemory(&latencyStats, sizeof(latencyStats));
-		latencyStats.externalLatency.average = _latencyStats.externalLatency.average;
-		latencyStats.internalLatency.average = _latencyStats.internalLatency.average;
-		latencyStats.inputLatency.average = _latencyStats.inputLatency.average;
+		tabsInfo[selectedTab].latencyStats = LatencyStats();
+		ZeroMemory(&tabsInfo[selectedTab].latencyStats, sizeof(tabsInfo[selectedTab].latencyStats));
+		tabsInfo[selectedTab].latencyStats.externalLatency.average = _latencyStats.externalLatency.average;
+		tabsInfo[selectedTab].latencyStats.internalLatency.average = _latencyStats.internalLatency.average;
+		tabsInfo[selectedTab].latencyStats.inputLatency.average = _latencyStats.inputLatency.average;
 
 		// In most cases a measurement won't be an edge case so It's better to check if it is and only then try to find a new edge value
-		//if(result.timeExternal == latencyStats.externalLatency.highest || result.timeInternal == latencyStats.internalLatency.highest || result.timePing == latencyStats.inputLatency.highest ||
-		//	result.timeExternal == latencyStats.externalLatency.lowest || result.timeInternal == latencyStats.internalLatency.lowest || result.timePing == latencyStats.inputLatency.lowest)
+		//if(result.timeExternal == tabsInfo[selectedTab].latencyStats.externalLatency.highest || result.timeInternal == tabsInfo[selectedTab].latencyStats.internalLatency.highest || result.timePing == tabsInfo[selectedTab].latencyStats.inputLatency.highest ||
+		//	result.timeExternal == tabsInfo[selectedTab].latencyStats.externalLatency.lowest || result.timeInternal == tabsInfo[selectedTab].latencyStats.internalLatency.lowest || result.timePing == tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
 		for (size_t i = 0; i < size; i++)
 		{
 			if (index == i)
 				continue;
 
-			auto& test = latencyTests[i];
+			auto& test = tabsInfo[selectedTab].latencyData.measurements[i];
 
 			if (i == 0 || (index == 0 && i == 1))
 			{
-				latencyStats.externalLatency.lowest = test.timeExternal;
-				latencyStats.internalLatency.lowest = test.timeInternal;
-				latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
+				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			}
 
 			//if (test.timeExternal > result.timeExternal)
 			//{
-			//	latencyStats.externalLatency.highest = test.timeExternal;
+			//	tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
 			//}
 			//else if (test.timeExternal < result.timeExternal)
 			//{
-			//	latencyStats.externalLatency.lowest = test.timeExternal;
+			//	tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
 			//}
 
 			//if (test.timeInternal > result.timeInternal)
 			//{
-			//	latencyStats.internalLatency.highest = test.timeInternal;
+			//	tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
 			//}
 			//else if (test.timeInternal < result.timeInternal)
 			//{
-			//	latencyStats.internalLatency.lowest = test.timeInternal;
+			//	tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
 			//}
 
 			//if (test.timePing > result.timePing)
 			//{
-			//	latencyStats.inputLatency.highest = test.timePing;
+			//	tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
 			//}
 			//else if (test.timeExternal < result.timeExternal)
 			//{
-			//	latencyStats.inputLatency.lowest = test.timePing;
+			//	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			//}
 
-			//if (test.timeExternal > latencyStats.externalLatency.highest)
+			//if (test.timeExternal > tabsInfo[selectedTab].latencyStats.externalLatency.highest)
 			//{
-			//	latencyStats.externalLatency.highest = test.timeExternal;
+			//	tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
 			//}
-			//else if (test.timeExternal < latencyStats.externalLatency.lowest)
+			//else if (test.timeExternal < tabsInfo[selectedTab].latencyStats.externalLatency.lowest)
 			//{
-			//	latencyStats.externalLatency.lowest = test.timeExternal;
-			//}
-
-			//if (test.timeInternal > latencyStats.internalLatency.highest)
-			//{
-			//	latencyStats.internalLatency.highest = test.timeInternal;
-			//}
-			//else if (test.timeInternal < latencyStats.internalLatency.lowest)
-			//{
-			//	latencyStats.internalLatency.lowest = test.timeInternal;
+			//	tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
 			//}
 
-			//if (test.timePing > latencyStats.inputLatency.highest)
+			//if (test.timeInternal > tabsInfo[selectedTab].latencyStats.internalLatency.highest)
 			//{
-			//	latencyStats.inputLatency.highest = test.timePing;
+			//	tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
 			//}
-			//else if (test.timePing < latencyStats.inputLatency.lowest)
+			//else if (test.timeInternal < tabsInfo[selectedTab].latencyStats.internalLatency.lowest)
 			//{
-			//	latencyStats.inputLatency.lowest = test.timePing;
+			//	tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+			//}
+
+			//if (test.timePing > tabsInfo[selectedTab].latencyStats.inputLatency.highest)
+			//{
+			//	tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
+			//}
+			//else if (test.timePing < tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
+			//{
+			//	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			//}
 		}
 
-		latencyTests.erase(latencyTests.begin() + index);
+		tabsInfo[selectedTab].latencyData.measurements.erase(tabsInfo[selectedTab].latencyData.measurements.begin() + index);
 		RecalculateStats();
 	}
 	else
 	{
-		latencyStats = LatencyStats();
-		latencyTests.clear();
-		isSaved = true;
+		tabsInfo[selectedTab].latencyStats = LatencyStats();
+		tabsInfo[selectedTab].latencyData.measurements.clear();
+		tabsInfo[selectedTab].isSaved = true;
 	}
 }
 
 bool SaveMeasurements()
 {
-	if (latencyTests.size() < 1)
+	if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
 		return false;
 
-	if (std::strlen(savePath) == 0)
+	if (std::strlen(tabsInfo[selectedTab].savePath) == 0)
 		return SaveAsMeasurements();
 
 	LatencyData latencyData{};
 	ZeroMemory(&latencyData, sizeof(LatencyData));
 
-	latencyData.measurements = latencyTests;
-	strcpy_s(latencyData.note, notes);
+	latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
+	strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
 
-	HelperJson::SaveLatencyTests(latencyData, savePath);
-	isSaved = true;
+	HelperJson::SaveLatencyTests(latencyData, tabsInfo[selectedTab].savePath);
+	tabsInfo[selectedTab].isSaved = true;
 
-	return isSaved;
+	return tabsInfo[selectedTab].isSaved;
 }
 
 bool SaveAsMeasurements()
 {
-	if (latencyTests.size() < 1)
+	if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
 		return false;
 
 	bool wasFullscreen = isFullscreen;
@@ -824,15 +868,15 @@ bool SaveAsMeasurements()
 		LatencyData latencyData{};
 		ZeroMemory(&latencyData, sizeof(LatencyData));
 
-		latencyData.measurements = latencyTests;
-		strcpy_s(latencyData.note, notes);
+		latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
+		strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
 
 		HelperJson::SaveLatencyTests(latencyData, filename);
-		strncpy_s(savePath, filename, MAX_PATH);
-		isSaved = true;
+		strncpy_s(tabsInfo[selectedTab].savePath, filename, MAX_PATH);
+		tabsInfo[selectedTab].isSaved = true;
 	}
 	else
-		isSaved = false;
+		tabsInfo[selectedTab].isSaved = false;
 
 	if (wasFullscreen)
 	{
@@ -840,7 +884,7 @@ bool SaveAsMeasurements()
 		isFullscreen = true;
 	}
 
-	return isSaved;
+	return tabsInfo[selectedTab].isSaved;
 }
 
 void OpenMeasurements()
@@ -877,10 +921,10 @@ void OpenMeasurements()
 		ClearData();
 		HelperJson::GetLatencyTests(latencyData, filename);
 
-		latencyTests = latencyData.measurements;
-		strcpy_s(notes, latencyData.note);
+		tabsInfo[selectedTab].latencyData.measurements = latencyData.measurements;
+		strcpy_s(tabsInfo[selectedTab].latencyData.note, latencyData.note);
 
-		if (latencyTests.empty())
+		if (tabsInfo[selectedTab].latencyData.measurements.empty())
 			return;
 
 		RecalculateStats(true);
@@ -903,10 +947,10 @@ static int FilterValidPath(ImGuiInputTextCallbackData* data)
 
 void ClearData()
 {
-	latencyTests.clear();
-	latencyStats = LatencyStats();
-	isSaved = true;
-	ZeroMemory(notes, 1000);
+	tabsInfo[selectedTab].latencyData.measurements.clear();
+	tabsInfo[selectedTab].latencyStats = LatencyStats();
+	tabsInfo[selectedTab].isSaved = true;
+	ZeroMemory(tabsInfo[selectedTab].latencyData.note, 1000);
 }
 
 // Not the best GUI solution, but it's simple, fast and gets the job done.
@@ -978,7 +1022,7 @@ int OnGui()
 		ImGui::EndMenuBar();
 	}
 
-	const auto avail = ImGui::GetContentRegionAvail();
+	const auto windowAvail = ImGui::GetContentRegionAvail();
 	ImGuiIO& io = ImGui::GetIO();
 
 	// Handle Shortcuts
@@ -1362,6 +1406,10 @@ int OnGui()
 					ImGui::Checkbox("Show Plots", &currentUserData.performance.showPlots);
 					TOOLTIP("Plots can have a small impact on the performance");
 
+					//ImGui::Checkbox("VSync", &currentUserData.performance.VSync);
+					ImGui::SliderInt("VSync", &(int&)currentUserData.performance.VSync, 0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
+					TOOLTIP("This setting synchronizes your monitor with the program to avoid screen tearing.\n(Adds a significant amount of latency)");
+
 					ImGui::EndChild();
 
 					break;
@@ -1391,7 +1439,80 @@ int OnGui()
 		ImGui::End();
 	}
 
-	if (ImGui::BeginChild("LeftChild", { avail.x / 2 - style.WindowPadding.x, avail.y - detectionRectSize.y + style.WindowPadding.y - 20 }, true))
+	if (ImGui::BeginTabBar("TestsTab", ImGuiTabBarFlags_AutoSelectNewTabs))
+	{
+		for (int tabN = 0; tabN < tabsInfo.size(); tabN++)
+		{
+			//char idText[24];
+			//snprintf(idText, 24, "Tab Item %i", tabN);
+			//ImGui::PushID(idText);
+
+			char tabNameLabel[48];
+			snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[tabN].name, tabN);
+
+			//ImGui::PushItemWidth(ImGui::CalcTextSize(tabNameLabel).x + 100);
+			if(!tabsInfo[tabN].isSaved)
+				ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + 15);
+			if (ImGui::BeginTabItem(tabNameLabel, NULL, tabsInfo[tabN].isSaved ? ImGuiTabItemFlags_None : ImGuiTabItemFlags_UnsavedDocument))
+			{
+				if(selectedTab != tabN)
+					selectedTab = tabN; 
+				ImGui::EndTabItem(); 
+			};
+			//ImGui::PopItemWidth();
+			//ImGui::PopID();
+
+				char popupName[32]{ 0 };
+				snprintf(popupName, 32, "Change tab %i name", tabN);
+
+				if (ImGui::IsItemClicked(1) || (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)))
+				{
+#ifdef _DEBUG
+					printf("Open tab %i tooltip\n", tabN);
+#endif
+
+					ImGui::OpenPopup(popupName);
+				}
+
+				if (ImGui::BeginPopup(popupName))
+				{
+					// Check if this name already exists
+					if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32)) { }
+
+					if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+						ImGui::CloseCurrentPopup();
+
+					ImGui::EndPopup();
+				}
+			
+
+			//if (ImGui::TabItemButton((std::string("Tab ") + std::to_string(tabN)).c_str()))
+			//{
+			//	if (tabN != 0)
+			//		auto x = 0;
+			//	selectedTab = tabN;
+			//	//ImGui::EndTabItem(); 
+			//};
+		}
+
+		if (ImGui::TabItemButton(" + ", ImGuiTabItemFlags_Trailing))
+		{
+			auto newTab = TabInfo();
+			strcat_s<32>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+			tabsInfo.push_back(newTab);
+			selectedTab = tabsInfo.size() - 1;
+
+			//ImGui::EndTabItem(); 
+		}
+
+		//ImGui::Text("Selected Item %i", selectedTab);
+
+		ImGui::EndTabBar();
+	}
+
+	const auto avail = ImGui::GetContentRegionAvail();
+
+	if (ImGui::BeginChild("LeftChild", { avail.x / 2 - style.WindowPadding.x, avail.y - detectionRectSize.y - 5 }, true))
 	{
 
 #ifdef _DEBUG 
@@ -1533,27 +1654,27 @@ int OnGui()
 
 			//ImGui::BeginGroup();
 			//ImGui::Text("Internal");
-			//ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
-			//ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000.f);
-			//ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
+			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000);
+			//ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.average / 1000.f);
+			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000);
 			//ImGui::EndGroup();
 
 			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
 
 			//ImGui::BeginGroup();
 			//ImGui::Text("External");
-			//ImGui::Text("%u", latencyStats.externalLatency.highest);
-			//ImGui::Text("%.2f", latencyStats.externalLatency.average);
-			//ImGui::Text("%u", latencyStats.externalLatency.lowest);
+			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.highest);
+			//ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.average);
+			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.lowest);
 			//ImGui::EndGroup();
 
 			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
 
 			//ImGui::BeginGroup();
 			//ImGui::Text("Input");
-			//ImGui::Text("%u", latencyStats.inputLatency.highest / 1000);
-			//ImGui::Text("%.2f", latencyStats.inputLatency.average / 1000.f);
-			//ImGui::Text("%u", latencyStats.inputLatency.lowest / 1000);
+			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000);
+			//ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.average / 1000.f);
+			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000);
 			//ImGui::EndGroup();
 			*/
 
@@ -1576,33 +1697,33 @@ int OnGui()
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Highest");
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", latencyStats.internalLatency.highest / 1000);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", latencyStats.externalLatency.highest);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.highest);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", latencyStats.inputLatency.highest / 1000);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000);
 
 				ImGui::TableNextRow();
 
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Average");
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", latencyStats.internalLatency.average / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.average / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", latencyStats.externalLatency.average);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.average);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", latencyStats.inputLatency.average / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.average / 1000);
 
 				ImGui::TableNextRow();
 
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Lowest");
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", latencyStats.internalLatency.lowest / 1000);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", latencyStats.externalLatency.lowest);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.lowest);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", latencyStats.inputLatency.lowest / 1000);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000);
 
 				ImGui::EndTable();
 			}
@@ -1619,28 +1740,28 @@ int OnGui()
 		auto plotHeight = min(max((plotsAvail.y - (4 * style.FramePadding.y)) / 4, 40), 100);
 		// Separate Plots
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
-		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return latencyTests[idx].timeInternal / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("External Latency", [](void* data, int idx) { return (float)latencyTests[idx].timeExternal; }, latencyTests.data(), latencyTests.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("External Latency", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
-		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return latencyTests[idx].timePing / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		ImGui::PopStyleColor(6);
 
 		// Combined Plots
 		auto startCursorPos = ImGui::GetCursorPos();
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
-		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return latencyTests[idx].timeInternal / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, latencyStats.inputLatency.lowest / 1000, latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
 		ImGui::PushStyleColor(ImGuiCol_Border, { 0,0,0,0 });
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)latencyTests[idx].timeExternal; }, latencyTests.data(), latencyTests.size(), 0, NULL, latencyStats.inputLatency.lowest / 1000, latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
-		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return latencyTests[idx].timePing / 1000.f; }, latencyTests.data(), latencyTests.size(), 0, NULL, latencyStats.inputLatency.lowest / 1000, latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 		ImGui::PopStyleColor(8);
 	}
 
@@ -1662,14 +1783,14 @@ int OnGui()
 		ImGui::TableHeadersRow();
 
 		// Copy of the original vector has to be used because there is a possibility that some of the items will be removed from it. In which case changes will be updated on the next frame
-		std::vector<LatencyReading> _latencyTestsCopy = latencyTests;
+		std::vector<LatencyReading> _latencyTestsCopy = tabsInfo[selectedTab].latencyData.measurements;
 
 		if (ImGuiTableSortSpecs* sorts_specs = ImGui::TableGetSortSpecs())
 			if (sorts_specs->SpecsDirty)
 			{
 				sortSpec = sorts_specs;
-				if (latencyTests.size() > 1)
-					qsort(&latencyTests[0], (size_t)latencyTests.size(), sizeof(latencyTests[0]), LatencyCompare);
+				if (tabsInfo[selectedTab].latencyData.measurements.size() > 1)
+					qsort(&tabsInfo[selectedTab].latencyData.measurements[0], (size_t)tabsInfo[selectedTab].latencyData.measurements.size(), sizeof(tabsInfo[selectedTab].latencyData.measurements[0]), LatencyCompare);
 				sortSpec = NULL;
 				sorts_specs->SpecsDirty = false;
 			}
@@ -1719,14 +1840,16 @@ int OnGui()
 	// Notes area
 	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
 	ImGui::Text("Measurement notes");
-	ImGui::InputTextMultiline("Measurements Notes", notes, 1000, { tableAvail.x, min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 15});
+	auto notesAvail = ImGui::GetContentRegionAvail();
+	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(notesAvail.y - detectionRectSize.y - 5, 600)});
+	//ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
 
 	ImGui::EndGroup();
 
 	// Color change detection rectangle.
 	ImVec2 rectSize{ 0, detectionRectSize.y };
-	rectSize.x = detectionRectSize.x == 0 ? avail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
-	ImVec2 pos = { 0, avail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 + 10 };
+	rectSize.x = detectionRectSize.x == 0 ? windowAvail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
+	ImVec2 pos = { 0, windowAvail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 + 10 };
 	ImRect bb{ pos, pos + rectSize };
 	ImGui::RenderFrame(
 		bb.Min,
@@ -1740,7 +1863,7 @@ int OnGui()
 
 	if (isExiting)
 	{
-		if (!isSaved)
+		if (!tabsInfo[selectedTab].isSaved)
 		{
 			isExitingWindowOpen = true;
 			ImGui::OpenPopup("Exit?");
@@ -1859,30 +1982,34 @@ void GotSerialChar(char c)
 			printf("Final result: %i\n", externalTime);
 #endif
 			LatencyReading reading{ externalTime, internalTime };
-			size_t size = latencyTests.size();
+			size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
 
 			// Update the stats
-			latencyStats.internalLatency.average = (latencyStats.internalLatency.average * size) / (size + 1.f) + (internalTime / (size + 1.f));
-			latencyStats.externalLatency.average = (latencyStats.externalLatency.average * size) / (size + 1.f) + (externalTime / (size + 1.f));
+			tabsInfo[selectedTab].latencyStats.internalLatency.average = (tabsInfo[selectedTab].latencyStats.internalLatency.average * size) / (size + 1.f) + (internalTime / (size + 1.f));
+			tabsInfo[selectedTab].latencyStats.externalLatency.average = (tabsInfo[selectedTab].latencyStats.externalLatency.average * size) / (size + 1.f) + (externalTime / (size + 1.f));
 
-			latencyStats.internalLatency.highest = internalTime > latencyStats.internalLatency.highest ? internalTime : latencyStats.internalLatency.highest;
-			latencyStats.externalLatency.highest = externalTime > latencyStats.externalLatency.highest ? externalTime : latencyStats.externalLatency.highest;
+			tabsInfo[selectedTab].latencyStats.internalLatency.highest = internalTime > tabsInfo[selectedTab].latencyStats.internalLatency.highest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.highest;
+			tabsInfo[selectedTab].latencyStats.externalLatency.highest = externalTime > tabsInfo[selectedTab].latencyStats.externalLatency.highest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.highest;
 
-			latencyStats.internalLatency.lowest = internalTime < latencyStats.internalLatency.lowest ? internalTime : latencyStats.internalLatency.lowest;
-			latencyStats.externalLatency.lowest = externalTime < latencyStats.externalLatency.lowest ? externalTime : latencyStats.externalLatency.lowest;
+			tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime < tabsInfo[selectedTab].latencyStats.internalLatency.lowest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.lowest;
+			tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime < tabsInfo[selectedTab].latencyStats.externalLatency.lowest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.lowest;
 
 			// If there are not measurements done yet set the minimum value to the current one
 			if (size == 0)
 			{
-				latencyStats.internalLatency.lowest = internalTime;
-				latencyStats.externalLatency.lowest = externalTime;
+				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime;
+				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime;
 			}
 
 			reading.index = size;
-			latencyTests.push_back(reading);
+			tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
+#ifdef BufferedSerialComm
+			_write(Serial::fd, "p", 1);
+#else
 			Serial::Write("p", 1);
+#endif
 			pingStartTime = std::chrono::high_resolution_clock::now();
 			//fwrite(&ch, sizeof(char), 1, Serial::hFile);
 			//fflush(Serial::hFile);
@@ -1899,21 +2026,21 @@ void GotSerialChar(char c)
 		if (c == 'b')
 		{
 			unsigned int pingTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - pingStartTime).count();
-			latencyTests[latencyTests.size() - 1].timePing = pingTime;
+			tabsInfo[selectedTab].latencyData.measurements[tabsInfo[selectedTab].latencyData.measurements.size() - 1].timePing = pingTime;
 
-			size_t size = latencyTests.size() - 1;
+			size_t size = tabsInfo[selectedTab].latencyData.measurements.size() - 1;
 
-			latencyStats.inputLatency.average = (latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
-			latencyStats.inputLatency.highest = pingTime > latencyStats.inputLatency.highest ? pingTime : latencyStats.inputLatency.highest;
-			latencyStats.inputLatency.lowest = pingTime < latencyStats.inputLatency.lowest ? pingTime : latencyStats.inputLatency.lowest;
+			tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
+			tabsInfo[selectedTab].latencyStats.inputLatency.highest = pingTime > tabsInfo[selectedTab].latencyStats.inputLatency.highest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.highest;
+			tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime < tabsInfo[selectedTab].latencyStats.inputLatency.lowest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.lowest;
 
 			if (size == 0)
 			{
-				latencyStats.inputLatency.lowest = pingTime;
+				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime;
 			}
 
 			serialStatus = Status_Idle;
-			isSaved = false;
+			tabsInfo[selectedTab].isSaved = false;
 		}
 		break;
 	default:
@@ -2167,7 +2294,7 @@ void HandleGameMode()
 // Returns true if should exit, false otherwise
 bool OnExit()
 {
-	if (isSaved)
+	if (tabsInfo[selectedTab].isSaved)
 	{
 		// Gui closes itself from the wnd messages
 		Serial::Close();
@@ -2175,7 +2302,7 @@ bool OnExit()
 		exit(0);
 	}
 	isExiting = true;
-	return isSaved;
+	return tabsInfo[selectedTab].isSaved;
 }
 
 // Main code
@@ -2185,6 +2312,8 @@ int main(int args, char** argv)
 	GUI::onExitFunc = OnExit;
 
 	localPath = argv[0];
+
+	QueryPerformanceCounter(&StartingTime);
 
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
@@ -2200,6 +2329,17 @@ int main(int args, char** argv)
 	bool done = false;
 
 	ImGuiIO& io = ImGui::GetIO();
+
+	auto defaultTab = TabInfo();
+	defaultTab.name[4] = '0';
+	tabsInfo.push_back(defaultTab);
+
+	UINT modesNum = 256;
+	DXGI_MODE_DESC monitorModes[256];
+	GetMonitorModes(monitorModes, &modesNum);
+
+	GUI::MAX_SUPPORTED_FRAMERATE = monitorModes[modesNum - 1].RefreshRate.Numerator;
+	GUI::VSyncFrame = &currentUserData.performance.VSync;
 
 	//float colors[styleColorNum][4];
 	//float brightnesses[styleColorNum] = { accentBrightness, fontBrightness };
@@ -2262,11 +2402,11 @@ int main(int args, char** argv)
 		GUI::LoadFonts(1);
 
 		currentUserData.performance.lockGuiFps = backupUserData.performance.lockGuiFps = true;
+
 		currentUserData.performance.showPlots = backupUserData.performance.showPlots = true;
 
-		UINT modesNum = 256;
-		DXGI_MODE_DESC monitorModes[256];
-		GetMonitorModes(monitorModes, &modesNum);
+		currentUserData.performance.VSync = backupUserData.performance.VSync = false;
+
 		printf("found %u monitor modes\n", modesNum);
 		currentUserData.performance.guiLockedFps = monitorModes[modesNum - 1].RefreshRate.Numerator * 2;
 		backupUserData.performance.guiLockedFps = currentUserData.performance.guiLockedFps;
@@ -2310,15 +2450,20 @@ MainLoop:
 		//	HandleGameMode();
 
 		// GUI Loop
-		if ((micros() - lastFrameGui + (lastFrameRenderTime) >= 1000000 / currentUserData.performance.guiLockedFps) || !currentUserData.performance.lockGuiFps)
+
+		uint64_t curTime = micros();
+		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ? (GUI::MAX_SUPPORTED_FRAMERATE/currentUserData.performance.VSync)-1 : currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
 		{
-			uint64_t frameStartRender = micros();
+			uint64_t frameStartRender = curTime;
 			if (GUI_Return_Code = GUI::DrawGui())
 				break;
 			lastFrameRenderTime = lastFrameGui - frameStartRender;
+			curTime += lastFrameRenderTime;
 		}
 
-		unsigned int newFrame = micros() - lastFrame;
+		//uint64_t CPUTime = micros();
+
+		unsigned int newFrame = curTime - lastFrame;
 
 		// Average frametime calculation
 		frameSum -= frames[frameIndex];
@@ -2329,14 +2474,14 @@ MainLoop:
 		averageFrametime = ((float)frameSum) / AVERAGE_FRAME_AMOUNT;
 
 		totalFrames++;
-		lastFrame = micros();
+		lastFrame = curTime;
 
 		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
 		//Sleep(1);
 	}
 
 	// Check if everything is saved before exiting the program.
-	if (!isSaved && GUI_Return_Code < 1)
+	if (!tabsInfo[selectedTab].isSaved && GUI_Return_Code < 1)
 	{
 		goto MainLoop;
 	}

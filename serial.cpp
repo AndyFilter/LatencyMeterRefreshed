@@ -2,7 +2,6 @@
 #include <Windows.h>
 #include <ostream>
 #include <iostream>
-
 #include "serial.h"
 
 // Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
@@ -221,6 +220,11 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	std::string serialCom = "\\\\.\\";
 	serialCom += szPortName;
 
+#ifdef BufferedSerialComm
+	isConnected = true;
+	return 	_sopen_s(&fd, serialCom.c_str(), _O_BINARY | _O_CREAT | _O_RDWR, _SH_DENYNO, _S_IREAD | _S_IWRITE);
+#endif // BufferedSerialComm
+
 	//auto r = fopen_s(&hFile, serialCom.c_str(), "ab+");
 
 	//isConnected = true;
@@ -232,7 +236,7 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 		0,
 		0,
 		OPEN_EXISTING,
-		FILE_FLAG_OVERLAPPED, // Make reading async (FILE_FLAG_OVERLAPPED)
+		FILE_FLAG_OVERLAPPED, // Make reading async (FILE_FLAG_OVERLAPPED). Also FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING
 		NULL
 	);
 
@@ -241,13 +245,19 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 
 	serialParams.DCBlength = sizeof(serialParams);
 
-	if (!GetCommState(hPort, &serialParams))
-		return false;
+	//if (!GetCommState(hPort, &serialParams))
+	//	return false;
 
 	serialParams.BaudRate = BAUD_RATE;
 	serialParams.Parity = NOPARITY;
 	serialParams.ByteSize = 8;
 	serialParams.StopBits = ONESTOPBIT;
+	serialParams.fBinary = TRUE;
+	serialParams.fParity = FALSE;
+	serialParams.fOutxCtsFlow = FALSE;
+	serialParams.fOutxDsrFlow = FALSE;
+	serialParams.fDtrControl = DTR_CONTROL_DISABLE;
+	serialParams.fDsrSensitivity = FALSE;
 	//serialParams.fDtrControl = DTR_CONTROL_ENABLE;
 
 
@@ -276,9 +286,66 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	isConnected = true;
 	return true;
 }
-
+char buffer[4]{ 0 };
+std::chrono::steady_clock::time_point internalStartTime;
 void Serial::HandleInput()
 {
+#ifdef BufferedSerialComm
+	if (fd == -1)
+		return;
+
+	//unsigned int nbytes = 3;
+	//char buffer[BYTES_TO_READ]{0};
+
+	//int bytesRead = _read(fd, buffer, nbytes);
+
+	//if (bytesRead > 0)
+	//{
+	//	if (OnCharReceived)
+	//	{
+	//		for (int i = 0; i < bytesRead; i++)
+	//		{
+	//			OnCharReceived(buffer[i]);
+	//		}
+	//	}
+	//}
+
+	//if (_write(fd, "r", 1))
+	//{
+	//	//internalStartTime = std::chrono::high_resolution_clock::now();
+	//	printf("Wrote succ\n");
+	//}
+
+	int bytesread;
+	unsigned int nbytes = 4;
+
+	//auto eof = _eof(fd);
+
+	bytesread = _read(fd, buffer, nbytes);
+	//buffer[3] = '\0';
+
+	if (bytesread >= 1)
+	{
+			if (OnCharReceived)
+			{
+				for (int i = 0; i < bytesread; i++)
+				{
+					OnCharReceived(buffer[i]);
+				}
+			}
+		//printf("Ping time: %lld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - internalStartTime).count());
+		printf("Message: %s\n", buffer);
+		//printf("Read: %s", buffer);
+		ZeroMemory(buffer, 4);
+	}
+
+	//Sleep(1000);
+
+	ZeroMemory(buffer, 4);
+
+	return;
+#endif // BufferedSerialComm
+
 	if (!isConnected || !hPort)
 		return;
 
@@ -577,6 +644,9 @@ void Serial::Close()
 {
 	if (isConnected)
 	{
+#ifdef BufferedSerialComm
+		_close(fd);
+#endif
 		// Clear the serial port Buffer
 		PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
 

@@ -291,7 +291,7 @@ int GUI::DrawGui() noexcept
 	g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
 	//g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-	g_pSwapChain->Present(0, 0);
+	g_pSwapChain->Present(*VSyncFrame, 0);
 	return 0;
 }
 

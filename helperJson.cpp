@@ -42,6 +42,7 @@ void to_json(json& j, const PerformanceData& performanceData)
 		{"lockGuiFps", performanceData.lockGuiFps},
 		{"guiLockedFps", performanceData.guiLockedFps},
 		{"showPlots", performanceData.showPlots},
+		{"VSync", performanceData.VSync},
 	};
 }
 
@@ -82,6 +83,7 @@ void from_json(const json& j, PerformanceData& performanceData)
 	j.at("guiLockedFps").get_to(performanceData.guiLockedFps);
 	j.at("lockGuiFps").get_to(performanceData.lockGuiFps);
 	j.at("showPlots").get_to(performanceData.showPlots);
+	j.at("VSync").get_to(performanceData.VSync);
 }
 
 void from_json(const json& j, StyleData& styleData)
