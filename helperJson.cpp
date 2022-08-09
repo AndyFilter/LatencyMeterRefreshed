@@ -68,12 +68,13 @@ void to_json(json& j, LatencyReading reading)
 	};
 }
 
-void to_json(json& j, LatencyData data)
+void to_json(json& j, TabInfo data)
 {
 	j = json
 	{
-		{"measurements", data.measurements },
-		{"note", data.note },
+		{"measurements", data.latencyData.measurements },
+		{"note", data.latencyData.note },
+		{"name", data.name },
 	};
 }
 
@@ -120,10 +121,11 @@ void from_json(const json& j, LatencyReading& reading)
 	j.at("index").get_to(reading.index);
 }
 
-void from_json(const json& j, LatencyData& reading)
+void from_json(const json& j, TabInfo& reading)
 {
-	j.at("measurements").get_to(reading.measurements);
-	strcpy_s(reading.note, j.value("note", "").c_str());
+	j.at("measurements").get_to(reading.latencyData.measurements);
+	strcpy_s(reading.latencyData.note, j.value("note", "").c_str());
+	strcpy_s(reading.name, j.value("name", "").c_str());
 }
 
 void HelperJson::SaveUserData(UserData& userData)
@@ -175,12 +177,12 @@ bool HelperJson::GetUserData(UserData& userData)
 	return true;
 }
 
-void HelperJson::SaveLatencyTests(LatencyData tests, char path[_MAX_PATH])
+void HelperJson::SaveLatencyTests(TabInfo tests, char path[_MAX_PATH])
 {
 	//std::string fileName = savesPath + std::string(name) + std::string(".json");
 
 	// Sort array by index before saving
-	qsort(&tests.measurements[0], (size_t)tests.measurements.size(), sizeof(tests.measurements[0]), LatencyIndexSort);
+	qsort(&tests.latencyData.measurements[0], (size_t)tests.latencyData.measurements.size(), sizeof(tests.latencyData.measurements[0]), LatencyIndexSort);
 
 	std::ofstream saveFile(path);
 
@@ -194,7 +196,7 @@ void HelperJson::SaveLatencyTests(LatencyData tests, char path[_MAX_PATH])
 	saveFile.close();
 }
 
-void HelperJson::GetLatencyTests(LatencyData& tests, char path[_MAX_PATH])
+void HelperJson::GetLatencyTests(TabInfo& tests, char path[_MAX_PATH])
 {
 	//std::string fileName = savesPath + std::string(name) + std::string(".json");
 	std::ifstream saveFile(path);

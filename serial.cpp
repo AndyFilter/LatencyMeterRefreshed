@@ -221,14 +221,15 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	serialCom += szPortName;
 
 #ifdef BufferedSerialComm
-	isConnected = true;
-	return 	_sopen_s(&fd, serialCom.c_str(), _O_BINARY | _O_CREAT | _O_RDWR, _SH_DENYNO, _S_IREAD | _S_IWRITE);
-#endif // BufferedSerialComm
 
-	//auto r = fopen_s(&hFile, serialCom.c_str(), "ab+");
+	auto openStatus = _sopen_s(&fd, serialCom.c_str(), _O_RDWR, _SH_DENYRW, NULL);
 
-	//isConnected = true;
-	//return true;
+	if (openStatus)
+		return false;
+
+	hPort = (HANDLE)_get_osfhandle(fd);
+
+#else // BufferedSerialComm
 
 	hPort = CreateFile(
 		serialCom.c_str(),
@@ -240,26 +241,45 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 		NULL
 	);
 
+#endif
+
 	DCB serialParams;
 	ZeroMemory(&serialParams, sizeof(serialParams));
 
 	serialParams.DCBlength = sizeof(serialParams);
 
-	//if (!GetCommState(hPort, &serialParams))
-	//	return false;
+	if (!GetCommState(hPort, &serialParams))
+		return false;
 
-	serialParams.BaudRate = BAUD_RATE;
+	serialParams.BaudRate = 19200;
 	serialParams.Parity = NOPARITY;
 	serialParams.ByteSize = 8;
 	serialParams.StopBits = ONESTOPBIT;
 	serialParams.fBinary = TRUE;
 	serialParams.fParity = FALSE;
+	//serialParams.fOutxCtsFlow = TRUE;
+	//serialParams.fOutxDsrFlow = TRUE;
+	//serialParams.fDtrControl = DTR_CONTROL_ENABLE;
+	//serialParams.fOutxCtsFlow = TRUE;
+	//serialParams.fRtsControl = RTS_CONTROL_ENABLE;
+	//serialParams.fDsrSensitivity = TRUE;
 	serialParams.fOutxCtsFlow = FALSE;
 	serialParams.fOutxDsrFlow = FALSE;
 	serialParams.fDtrControl = DTR_CONTROL_DISABLE;
-	serialParams.fDsrSensitivity = FALSE;
-	//serialParams.fDtrControl = DTR_CONTROL_ENABLE;
-
+	serialParams.fDsrSensitivity = FALSE; // Can be False, doesn't matter
+	serialParams.fTXContinueOnXoff = FALSE;
+	serialParams.fOutX = FALSE;
+	serialParams.fErrorChar = FALSE;
+	serialParams.fNull = FALSE;
+	serialParams.fRtsControl = RTS_CONTROL_DISABLE;
+	serialParams.fAbortOnError = FALSE;
+	serialParams.XonLim = 0;
+	serialParams.XoffLim = 0;
+	serialParams.XonChar = 0;
+	serialParams.XoffChar = 0;
+	serialParams.ErrorChar = 0;
+	serialParams.EofChar = 0;
+	serialParams.EvtChar = 0;
 
 	if (!SetCommState(hPort, &serialParams))
 		return false;
@@ -274,77 +294,46 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	if (!SetCommTimeouts(hPort, &timeout))
 		return false;
 
-	//ReadIO(hPort, &osReader, buffer);
-
-
 	PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
 
-	SetCommMask(hPort, EV_RXCHAR | EV_ERR);
+	isConnected = true;
+	return true;
+
+	//SetCommMask(hPort, EV_RXCHAR | EV_ERR);
 
 	//ioThread = std::thread(ReadIO, hPort, &osReader, &buffer);
 
 	isConnected = true;
 	return true;
 }
-char buffer[4]{ 0 };
-std::chrono::steady_clock::time_point internalStartTime;
+
 void Serial::HandleInput()
 {
+
 #ifdef BufferedSerialComm
+
 	if (fd == -1)
 		return;
 
-	//unsigned int nbytes = 3;
-	//char buffer[BYTES_TO_READ]{0};
+	unsigned int nbytes = BYTES_TO_READ;
+	char buffer[BYTES_TO_READ]{0};
 
-	//int bytesRead = _read(fd, buffer, nbytes);
+	int bytesRead = _read(fd, buffer, nbytes);
 
-	//if (bytesRead > 0)
-	//{
-	//	if (OnCharReceived)
-	//	{
-	//		for (int i = 0; i < bytesRead; i++)
-	//		{
-	//			OnCharReceived(buffer[i]);
-	//		}
-	//	}
-	//}
-
-	//if (_write(fd, "r", 1))
-	//{
-	//	//internalStartTime = std::chrono::high_resolution_clock::now();
-	//	printf("Wrote succ\n");
-	//}
-
-	int bytesread;
-	unsigned int nbytes = 4;
-
-	//auto eof = _eof(fd);
-
-	bytesread = _read(fd, buffer, nbytes);
-	//buffer[3] = '\0';
-
-	if (bytesread >= 1)
+	if (bytesRead > 0)
 	{
-			if (OnCharReceived)
+		if (OnCharReceived)
+		{
+			for (int i = 0; i < bytesRead; i++)
 			{
-				for (int i = 0; i < bytesread; i++)
-				{
-					OnCharReceived(buffer[i]);
-				}
+				OnCharReceived(buffer[i]);
 			}
-		//printf("Ping time: %lld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - internalStartTime).count());
-		printf("Message: %s\n", buffer);
-		//printf("Read: %s", buffer);
-		ZeroMemory(buffer, 4);
+		}
 	}
 
-	//Sleep(1000);
-
-	ZeroMemory(buffer, 4);
-
 	return;
-#endif // BufferedSerialComm
+
+#else // BufferedSerialComm
 
 	if (!isConnected || !hPort)
 		return;
@@ -559,6 +548,8 @@ void Serial::HandleInput()
 //				OnCharReceived(byte[i]);
 //			}
 //		}
+
+#endif
 }
 
 BOOL WriteABuffer(char* lpBuf, DWORD dwToWrite)
@@ -601,6 +592,13 @@ BOOL WriteABuffer(char* lpBuf, DWORD dwToWrite)
 
 bool Serial::Write(const char* c, size_t size)
 {
+#ifdef BufferedSerialComm
+
+	auto written = _write(fd, c, size);
+
+	return written > 0 ? true : false;
+
+#else
 	DWORD dwRead;
 	//return WriteFile(hPort, c, size, &dwRead, &osReader);
 	auto res = WriteABuffer((char*)c, size);
@@ -638,23 +636,25 @@ bool Serial::Write(const char* c, size_t size)
 	//}
 	////tryingToWrite = false;
 	//return true;
+#endif
 }
 
 void Serial::Close()
 {
 	if (isConnected)
 	{
-#ifdef BufferedSerialComm
-		_close(fd);
-#endif
 		// Clear the serial port Buffer
 		PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
-
+#ifdef BufferedSerialComm
+		_close(fd);
+#else
 		CloseHandle(hPort);
 		CloseHandle(osReader.hEvent);
+#endif
 
 		hPort = INVALID_HANDLE_VALUE;
 		osReader.hEvent = INVALID_HANDLE_VALUE;
+		fd = -1;
 	}
 
 	isConnected = false;

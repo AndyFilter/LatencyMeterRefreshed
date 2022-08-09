@@ -17,13 +17,13 @@ HWND hwnd;
 
 ImVec2 detectionRectSize{ 0, 200 };
 
-unsigned int lastFrameGui = 0;
-unsigned int lastFrame = 0;
+uint64_t lastFrameGui = 0;
+uint64_t lastFrame = 0;
 
 // Frametime in microseconds
 float averageFrametime = 0;
 const unsigned int AVERAGE_FRAME_AMOUNT = 10000;
-unsigned int frames[AVERAGE_FRAME_AMOUNT]{ 0 };
+uint64_t frames[AVERAGE_FRAME_AMOUNT]{ 0 };
 unsigned long long totalFrames = 0;
 
 // ---- Styling ---- (Don't ask me why I didn't create structures for these things earlier)
@@ -85,9 +85,9 @@ bool showPlotsBak;
 
 // ---- User Data ----
 
-UserData currentUserData {};
+UserData currentUserData{};
 
-UserData backupUserData {};
+UserData backupUserData{};
 
 // --------
 
@@ -148,8 +148,10 @@ TODO:
 + Fix overwriting saves
 + Unsaved work notification
 - Custom Fonts (?)
-- Multiple tabs for measurements
-- Save Tabs
++ Multiple tabs for measurements
++ Unsaved tabs alert
+- Move IO to a separate thread (ONLY if it doens't introduce additional latency)
+
 */
 
 bool isSettingOpen = false;
@@ -818,28 +820,28 @@ void RemoveMeasurement(size_t index)
 
 bool SaveMeasurements()
 {
-	if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
-		return false;
+	//if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
+	//	return false;
 
 	if (std::strlen(tabsInfo[selectedTab].savePath) == 0)
 		return SaveAsMeasurements();
 
-	LatencyData latencyData{};
-	ZeroMemory(&latencyData, sizeof(LatencyData));
+	//LatencyData latencyData{};
+	//ZeroMemory(&latencyData, sizeof(LatencyData));
+	//
+	//latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
+	//strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
 
-	latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
-	strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
-
-	HelperJson::SaveLatencyTests(latencyData, tabsInfo[selectedTab].savePath);
+	HelperJson::SaveLatencyTests(tabsInfo[selectedTab], tabsInfo[selectedTab].savePath);
 	tabsInfo[selectedTab].isSaved = true;
 
-	return tabsInfo[selectedTab].isSaved;
+	return true;
 }
 
 bool SaveAsMeasurements()
 {
-	if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
-		return false;
+	//if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
+	//	return false;
 
 	bool wasFullscreen = isFullscreen;
 	if (isFullscreen)
@@ -865,18 +867,20 @@ bool SaveAsMeasurements()
 
 	if (GetSaveFileName(&ofn))
 	{
-		LatencyData latencyData{};
-		ZeroMemory(&latencyData, sizeof(LatencyData));
-
-		latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
-		strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
-
-		HelperJson::SaveLatencyTests(latencyData, filename);
 		strncpy_s(tabsInfo[selectedTab].savePath, filename, MAX_PATH);
-		tabsInfo[selectedTab].isSaved = true;
+
+		SaveMeasurements();
+
+		//LatencyData latencyData{};
+		//ZeroMemory(&latencyData, sizeof(LatencyData));
+		//
+		//latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
+		//strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
+		//
+		//HelperJson::SaveLatencyTests(latencyData, filename);
 	}
-	else
-		tabsInfo[selectedTab].isSaved = false;
+	//else
+	//	tabsInfo[selectedTab].isSaved = false;
 
 	if (wasFullscreen)
 	{
@@ -915,20 +919,13 @@ void OpenMeasurements()
 
 	if (GetOpenFileName(&ofn))
 	{
-		LatencyData latencyData{};
-		ZeroMemory(&latencyData, sizeof(LatencyData));
-
 		ClearData();
-		HelperJson::GetLatencyTests(latencyData, filename);
+		HelperJson::GetLatencyTests(tabsInfo[selectedTab], filename);
 
-		tabsInfo[selectedTab].latencyData.measurements = latencyData.measurements;
-		strcpy_s(tabsInfo[selectedTab].latencyData.note, latencyData.note);
+		strcpy_s(tabsInfo[selectedTab].savePath, filename);
 
-		if (tabsInfo[selectedTab].latencyData.measurements.empty())
-			return;
-
-		RecalculateStats(true);
-		auto x = 0;
+		if (!tabsInfo[selectedTab].latencyData.measurements.empty())
+			RecalculateStats(true);
 	}
 
 	// Add this to preferences or smth
@@ -1026,7 +1023,7 @@ int OnGui()
 	ImGuiIO& io = ImGui::GetIO();
 
 	// Handle Shortcuts
-	ImGuiKey pressedKeys[ImGuiKey_COUNT]{0};
+	ImGuiKey pressedKeys[ImGuiKey_COUNT]{ 0 };
 	size_t addedKeys = 0;
 
 	//ZeroMemory(pressedKeys, ImGuiKey_COUNT);
@@ -1083,7 +1080,7 @@ int OnGui()
 					ImGui::OpenPopup("Enter Fullscreen mode?");
 					fullscreenModeOpenPopup = true;
 				}
-				else if(!fullscreenModeClosePopup && !fullscreenModeOpenPopup)
+				else if (!fullscreenModeClosePopup && !fullscreenModeOpenPopup)
 				{
 					ImGui::OpenPopup("Exit Fullscreen mode?");
 					fullscreenModeClosePopup = true;
@@ -1439,9 +1436,11 @@ int OnGui()
 		ImGui::End();
 	}
 
-	if (ImGui::BeginTabBar("TestsTab", ImGuiTabBarFlags_AutoSelectNewTabs))
+	int deletedTabIndex = -1;
+
+	if (ImGui::BeginTabBar("TestsTab", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable))
 	{
-		for (int tabN = 0; tabN < tabsInfo.size(); tabN++)
+		for (size_t tabN = 0; tabN < tabsInfo.size(); tabN++)
 		{
 			//char idText[24];
 			//snprintf(idText, 24, "Tab Item %i", tabN);
@@ -1451,40 +1450,125 @@ int OnGui()
 			snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[tabN].name, tabN);
 
 			//ImGui::PushItemWidth(ImGui::CalcTextSize(tabNameLabel).x + 100);
-			if(!tabsInfo[tabN].isSaved)
-				ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + 15);
+			//if(!tabsInfo[tabN].isSaved)
+			//	ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + 15);
+			//else
+			ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + (tabsInfo[tabN].isSaved ? 0 : 15));
 			if (ImGui::BeginTabItem(tabNameLabel, NULL, tabsInfo[tabN].isSaved ? ImGuiTabItemFlags_None : ImGuiTabItemFlags_UnsavedDocument))
 			{
-				if(selectedTab != tabN)
-					selectedTab = tabN; 
-				ImGui::EndTabItem(); 
+				if (selectedTab != tabN)
+					selectedTab = tabN;
+				ImGui::EndTabItem();
 			};
 			//ImGui::PopItemWidth();
 			//ImGui::PopID();
 
-				char popupName[32]{ 0 };
-				snprintf(popupName, 32, "Change tab %i name", tabN);
+			char popupName[32]{ 0 };
+			snprintf(popupName, 32, "Change tab %i name", tabN);
 
-				if (ImGui::IsItemClicked(1) || (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)))
+			char tabClosePopupName[48];
+			snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", tabN);
+
+			static bool tabExitOpen = true;
+			bool openTabClose = false;
+
+			if (ImGui::IsItemFocused())
+			{
+				if (ImGui::IsKeyDown(ImGuiKey_Delete))
 				{
 #ifdef _DEBUG
-					printf("Open tab %i tooltip\n", tabN);
+					printf("deleting tab: %i\n", tabN);
 #endif
-
-					ImGui::OpenPopup(popupName);
+					if (!tabsInfo[tabN].isSaved)
+					{
+						ImGui::OpenPopup(tabClosePopupName);
+						tabExitOpen = true;
+					}
+					else
+					{
+						deletedTabIndex = tabN;
+						// Unfocus so the next items won't get deleted (This can also be achieved by checking if DEL was not down)
+						ImGui::SetWindowFocus(nullptr);
+					}
 				}
+			}
 
-				if (ImGui::BeginPopup(popupName))
+			if (ImGui::IsItemClicked(1) || (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)))
+			{
+#ifdef _DEBUG
+				printf("Open tab %i tooltip\n", tabN);
+#endif
+				ImGui::OpenPopup(popupName);
+			}
+
+			if (ImGui::BeginPopup(popupName))
+			{
+				// Check if this name already exists
+				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32)) {}
+
+				if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+					ImGui::CloseCurrentPopup();
+
+				//ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 4);
+				if (tabsInfo.size() > 1)
+					if (ImGui::Button("Close Tab", { -1, 0 }))
+					{
+						if (!tabsInfo[tabN].isSaved)
+						{
+							ImGui::CloseCurrentPopup();
+							//ImGui::OpenPopup(tabClosePopupName);
+							openTabClose = true;
+						}
+						else
+						{
+							deletedTabIndex = tabN;
+							ImGui::CloseCurrentPopup();
+						}
+					}
+
+				ImGui::EndPopup();
+			}
+
+			if (openTabClose)
+			{
+				tabExitOpen = true;
+				ImGui::OpenPopup(tabClosePopupName);
+			}
+
+			if (ImGui::BeginPopupModal(tabClosePopupName, &tabExitOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+			{
+				ImGui::Text("Are you sure you want to close this tab?\nAll measurements will be lost if you don't save");
+
+				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
+
+				auto popupAvail = ImGui::GetContentRegionAvail();
+
+				popupAvail.x -= style.ItemSpacing.x * 2;
+
+				if (ImGui::Button("Save", { popupAvail.x / 3, 0 }))
 				{
-					// Check if this name already exists
-					if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32)) { }
-
-					if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
-						ImGui::CloseCurrentPopup();
-
-					ImGui::EndPopup();
+					if(SaveMeasurements())
+						deletedTabIndex = tabN;
+					ImGui::CloseCurrentPopup();
+					tabExitOpen = false;
 				}
-			
+				ImGui::SameLine();
+				if (ImGui::Button("Discard", { popupAvail.x / 3, 0 }))
+				{
+					deletedTabIndex = tabN;
+					ImGui::CloseCurrentPopup();
+					tabExitOpen = false;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Close", { popupAvail.x / 3, 0 }))
+				{
+					ImGui::CloseCurrentPopup();
+					tabExitOpen = false;
+				}
+
+				ImGui::EndPopup();
+			}
+
 
 			//if (ImGui::TabItemButton((std::string("Tab ") + std::to_string(tabN)).c_str()))
 			//{
@@ -1494,6 +1578,7 @@ int OnGui()
 			//	//ImGui::EndTabItem(); 
 			//};
 		}
+
 
 		if (ImGui::TabItemButton(" + ", ImGuiTabItemFlags_Trailing))
 		{
@@ -1508,6 +1593,12 @@ int OnGui()
 		//ImGui::Text("Selected Item %i", selectedTab);
 
 		ImGui::EndTabBar();
+	}
+
+	if (deletedTabIndex >= 0)
+	{
+		tabsInfo.erase(tabsInfo.begin() + deletedTabIndex);
+		selectedTab -= 1;
 	}
 
 	const auto avail = ImGui::GetContentRegionAvail();
@@ -1542,7 +1633,7 @@ int OnGui()
 		ImGui::PushItemWidth(80);
 		if (ImGui::BeginCombo("Port", Serial::availablePorts[selectedPort].c_str()))
 		{
-			for (int i = 0; i < Serial::availablePorts.size(); i++)
+			for (size_t i = 0; i < Serial::availablePorts.size(); i++)
 			{
 				bool isSelected = (selectedPort == i);
 				if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
@@ -1604,7 +1695,7 @@ int OnGui()
 		ImGui::Checkbox("Game Mode", &isGameMode);
 		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.")
 
-		ImGui::SameLine();
+			ImGui::SameLine();
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
 		if (ImGui::Button("Clear"))
@@ -1738,30 +1829,39 @@ int OnGui()
 	{
 		auto plotsAvail = ImGui::GetContentRegionAvail();
 		auto plotHeight = min(max((plotsAvail.y - (4 * style.FramePadding.y)) / 4, 40), 100);
+
+		auto& measurements = tabsInfo[selectedTab].latencyData.measurements;
+
 		// Separate Plots
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
-		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("External Latency", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("External Latency", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
-		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		ImGui::PopStyleColor(6);
 
 		// Combined Plots
 		auto startCursorPos = ImGui::GetCursorPos();
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
-		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; },
+			measurements.data(), measurements.size(), 0, NULL,
+			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
 		ImGui::PushStyleColor(ImGuiCol_Border, { 0,0,0,0 });
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; },
+			measurements.data(), measurements.size(), 0, NULL,
+			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
-		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, tabsInfo[selectedTab].latencyData.measurements.data(), tabsInfo[selectedTab].latencyData.measurements.size(), 0, NULL, tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; },
+			measurements.data(), measurements.size(), 0, NULL,
+			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 		ImGui::PopStyleColor(8);
 	}
 
@@ -1841,7 +1941,7 @@ int OnGui()
 	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
 	ImGui::Text("Measurement notes");
 	auto notesAvail = ImGui::GetContentRegionAvail();
-	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(notesAvail.y - detectionRectSize.y - 5, 600)});
+	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(notesAvail.y - detectionRectSize.y - 5, 600) });
 	//ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
 
 	ImGui::EndGroup();
@@ -1858,7 +1958,7 @@ int OnGui()
 		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1.f)),
 		false
 	);
-	
+
 	static bool isExitingWindowOpen = false;
 
 	if (isExiting)
@@ -1919,7 +2019,7 @@ void GotSerialChar(char c)
 #endif
 
 	// 5 numbers should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
-	static BYTE resultBuffer[5]{0};
+	static BYTE resultBuffer[5]{ 0 };
 	static BYTE resultNum = 0;
 
 	static std::chrono::steady_clock::time_point internalStartTime;
@@ -1964,10 +2064,10 @@ void GotSerialChar(char c)
 	case Status_WaitingForResult:
 		internalEndTime = std::chrono::high_resolution_clock::now();
 		// e for end (end of the numbers)
-		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added.
+		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added. (Little did he know)
 		if (c == 'e')
 		{
-			// Because we are subtracting 2 similar unsigned longs longs, we dont need another unsigned long long, we just need and int
+			// Because we are subtracting 2 similar unsigned long longs, we dont need another unsigned long long, we just need an int
 			unsigned int internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
 			unsigned int externalTime = 0;
 			// Convert the byte array to int
@@ -2005,11 +2105,8 @@ void GotSerialChar(char c)
 			tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
 			resultNum = 0;
 			std::fill_n(resultBuffer, 5, 0);
-#ifdef BufferedSerialComm
-			_write(Serial::fd, "p", 1);
-#else
+			//_write(Serial::fd, "p", 1);
 			Serial::Write("p", 1);
-#endif
 			pingStartTime = std::chrono::high_resolution_clock::now();
 			//fwrite(&ch, sizeof(char), 1, Serial::hFile);
 			//fflush(Serial::hFile);
@@ -2227,7 +2324,7 @@ void HandleSerial()
 		return;
 
 
-			}
+}
 
 void CloseSerial()
 {
@@ -2248,6 +2345,8 @@ bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 		return false;
 		printf("Error getting the display modes\n");
 	}
+
+	return true;
 }
 
 // It turns out you can just send MOUSEEVENTF_LEFTUP and MOUSEEVENTF_LEFTDOWN at the same time, and it counts as a click...
@@ -2314,6 +2413,9 @@ int main(int args, char** argv)
 	localPath = argv[0];
 
 	QueryPerformanceCounter(&StartingTime);
+
+	if (SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
+		printf("Priotity set to Highest\n");
 
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
@@ -2452,7 +2554,7 @@ MainLoop:
 		// GUI Loop
 
 		uint64_t curTime = micros();
-		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ? (GUI::MAX_SUPPORTED_FRAMERATE/currentUserData.performance.VSync)-1 : currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
+		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ? (GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 : currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
 		{
 			uint64_t frameStartRender = curTime;
 			if (GUI_Return_Code = GUI::DrawGui())
@@ -2463,7 +2565,7 @@ MainLoop:
 
 		//uint64_t CPUTime = micros();
 
-		unsigned int newFrame = curTime - lastFrame;
+		uint64_t newFrame = curTime - lastFrame;
 
 		// Average frametime calculation
 		frameSum -= frames[frameIndex];
