@@ -182,6 +182,7 @@ void HelperJson::SaveLatencyTests(TabInfo tests, char path[_MAX_PATH])
 	//std::string fileName = savesPath + std::string(name) + std::string(".json");
 
 	// Sort array by index before saving
+	if(tests.latencyData.measurements.size() > 0)
 	qsort(&tests.latencyData.measurements[0], (size_t)tests.latencyData.measurements.size(), sizeof(tests.latencyData.measurements[0]), LatencyIndexSort);
 
 	std::ofstream saveFile(path);

@@ -112,6 +112,7 @@ std::vector<TabInfo> tabsInfo{};
 //char savePath[MAX_PATH]{ 0 };
 
 bool isExiting = false;
+std::vector<int> unsavedTabs;
 
 static ImGuiTableSortSpecs* sortSpec;
 
@@ -124,6 +125,8 @@ bool wasLMB_Pressed = false;
 bool wasMouseClickSent = false;
 
 int selectedTab = 0;
+
+bool wasItemAddedGUI = false;
 
 // Forward declaration
 void GotSerialChar(char c);
@@ -151,11 +154,21 @@ TODO:
 + Multiple tabs for measurements
 + Unsaved tabs alert
 - Move IO to a separate thread (ONLY if it doens't introduce additional latency)
++ Reset status on disconnect and clear
++ Fix measurement index when removing (or don't, I don' know)
++ Auto scroll measurements on new added
++ Changing tab name sets the status to unsaved
++ Fix too many tabs obscuring tabs beneath them
++ Check if ANY tab is unsaved when closing
+- Pack Save (Save all the tabs into a single file) (?)
+- Configuration Screen
 
 */
 
 bool isSettingOpen = false;
+
 static LARGE_INTEGER StartingTime{ 0 };
+
 uint64_t micros()
 {
 	//auto timeNow = std::chrono::high_resolution_clock::now();
@@ -752,6 +765,9 @@ void RemoveMeasurement(size_t index)
 				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
 			}
 
+			if (i > index)
+				test.index -= 1;
+
 			//if (test.timeExternal > result.timeExternal)
 			//{
 			//	tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
@@ -944,6 +960,7 @@ static int FilterValidPath(ImGuiInputTextCallbackData* data)
 
 void ClearData()
 {
+	serialStatus = Status_Idle;
 	tabsInfo[selectedTab].latencyData.measurements.clear();
 	tabsInfo[selectedTab].latencyStats = LatencyStats();
 	tabsInfo[selectedTab].isSaved = true;
@@ -1030,7 +1047,7 @@ int OnGui()
 
 	for (ImGuiKey key = 0; key < ImGuiKey_COUNT; key++)
 	{
-		bool isPressed = ImGui::IsKeyPressed(key);
+		bool isPressed = ImGui::IsKeyPressed(key, false);
 
 		// Shift, ctrl and alt
 		if ((key >= 641 && key <= 643) || (key >= 527 && key <= 533))
@@ -1041,10 +1058,7 @@ int OnGui()
 
 		if (isPressed) {
 			auto name = ImGui::GetKeyName(key);
-			auto s = io.KeyMap;
 			pressedKeys[addedKeys++] = key;
-			//if (keyName == 's' && io.KeyCtrl && !io.KeyShift && !io.KeyAlt)
-			//	SaveMeasurements();
 		}
 	}
 
@@ -1052,29 +1066,43 @@ int OnGui()
 
 	if (addedKeys == 1)
 	{
-		const char* name = ImGui::GetKeyName(pressedKeys[0]);
+		//const char* name = ImGui::GetKeyName(pressedKeys[0]);
 		if (io.KeyCtrl)
 		{
-			io.ClearInputKeys();
-			if (name[0] == 'S')
+			//io.ClearInputKeys();
+			if (pressedKeys[0] == ImGuiKey_S)
 			{
 				SaveMeasurements();
 			}
-			else if (name[0] == 'O')
+			else if (pressedKeys[0] == ImGuiKey_O)
 			{
 				OpenMeasurements();
+			}
+			else if (pressedKeys[0] == ImGuiKey_N)
+			{
+				auto newTab = TabInfo();
+				strcat_s<32>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+				tabsInfo.push_back(newTab);
+			}
+			// Doesn't work yet!
+			else if (pressedKeys[0] == ImGuiKey_W)
+			{
+				char tabClosePopupName[48];
+				snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", selectedTab);
+
+				ImGui::OpenPopup(tabClosePopupName);
 			}
 		}
 		else if (io.KeyAlt)
 		{
-			io.ClearInputKeys();
+			//io.ClearInputKeys();
+
+			// Going fullscreen popup currently with a small issue
 
 			// Enter
-			if (pressedKeys[0] == 615 || pressedKeys[0] == 525)
+			if (pressedKeys[0] == ImGuiKey_Enter || pressedKeys[0] == ImGuiKey_KeypadEnter)
 			{
-				BOOL isFS;
-				GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
-				isFullscreen = isFS;
+				GUI::g_pSwapChain->GetFullscreenState((BOOL*)&isFullscreen, nullptr);
 				if (!isFullscreen && !fullscreenModeOpenPopup)
 				{
 					ImGui::OpenPopup("Enter Fullscreen mode?");
@@ -1108,10 +1136,18 @@ int OnGui()
 		ImGui::Text("Are you sure you want to enter Fullscreen mode?");
 		TOOLTIP("Press Escape to Exit");
 		ImGui::SeparatorSpace(0, { 0, 10 });
-		if (ImGui::Button("Yes") || IS_ONLY_ENTER_PRESSED)
+		if (ImGui::Button("Yes") || (IS_ONLY_ENTER_PRESSED && !io.KeyAlt))
 		{
-			// I'm pretty sure I should also resize the swapchain buffer to use the new resolution, but maybe later
-			if (GUI::g_pSwapChain->SetFullscreenState(true, nullptr) == S_OK)
+			// I'm pretty sure I should also resize the swapchain buffer to use the new resolution, but maybe later. It looks kind of goofy on displays with odd resolution :shrug:
+			//GUI::g_pSwapChain->ResizeBuffers(0, 1080, 1920, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+			//UINT modesNum = 256;
+			//DXGI_MODE_DESC monitorModes[256];
+			//GUI::vOutputs[1]->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM, 0, &modesNum, monitorModes);
+			//auto x = 0;
+			//DXGI_MODE_DESC mode = monitorModes[modesNum - 1];
+			//GUI::g_pSwapChain->ResizeTarget(&mode);
+			//GUI::g_pSwapChain->ResizeBuffers(0, 1080, 1920, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+			if (GUI::g_pSwapChain->SetFullscreenState(true, NULL) == S_OK)
 				isFullscreen = true;
 			else
 				isFullscreen = false;
@@ -1436,10 +1472,13 @@ int OnGui()
 		ImGui::End();
 	}
 
+	// TABS
+
 	int deletedTabIndex = -1;
 
-	if (ImGui::BeginTabBar("TestsTab", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable))
+	if (ImGui::BeginTabBar("TestsTab", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
 	{
+
 		for (size_t tabN = 0; tabN < tabsInfo.size(); tabN++)
 		{
 			//char idText[24];
@@ -1454,17 +1493,36 @@ int OnGui()
 			//	ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + 15);
 			//else
 			ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + (tabsInfo[tabN].isSaved ? 0 : 15));
-			if (ImGui::BeginTabItem(tabNameLabel, NULL, tabsInfo[tabN].isSaved ? ImGuiTabItemFlags_None : ImGuiTabItemFlags_UnsavedDocument))
+			//selectedTab = tabsInfo.size() - 1;
+			auto flags = selectedTab == tabN ? ImGuiTabItemFlags_SetSelected : 0;
+			flags |= tabsInfo[tabN].isSaved ? 0 : ImGuiTabItemFlags_UnsavedDocument;
+			if (selectedTab == tabN && tabN == 2)
+				auto x = 0;
+			if (ImGui::BeginTabItem(tabNameLabel, NULL, flags))
 			{
-				if (selectedTab != tabN)
-					selectedTab = tabN;
 				ImGui::EndTabItem();
-			};
+			}
 			//ImGui::PopItemWidth();
 			//ImGui::PopID();
 
+			if (ImGui::IsItemHovered())
+			{
+
+				if (ImGui::IsMouseDown(0))
+				{
+					selectedTab = tabN;
+				}
+
+				auto mouseDelta = io.MouseWheel;
+				selectedTab += mouseDelta;
+				selectedTab = std::clamp(selectedTab, 0, (int)tabsInfo.size() - 1);
+			}
+
 			char popupName[32]{ 0 };
 			snprintf(popupName, 32, "Change tab %i name", tabN);
+
+			char popupTextEdit[32]{ 0 };
+			snprintf(popupTextEdit, 32, "Ed Txt %i", tabN);
 
 			char tabClosePopupName[48];
 			snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", tabN);
@@ -1474,26 +1532,77 @@ int OnGui()
 
 			if (ImGui::IsItemFocused())
 			{
-				if (ImGui::IsKeyDown(ImGuiKey_Delete))
+				if (ImGui::IsKeyPressed(ImGuiKey_Delete, false))
 				{
 #ifdef _DEBUG
 					printf("deleting tab: %i\n", tabN);
 #endif
-					if (!tabsInfo[tabN].isSaved)
-					{
-						ImGui::OpenPopup(tabClosePopupName);
-						tabExitOpen = true;
-					}
-					else
-					{
-						deletedTabIndex = tabN;
-						// Unfocus so the next items won't get deleted (This can also be achieved by checking if DEL was not down)
-						ImGui::SetWindowFocus(nullptr);
-					}
+					if (tabsInfo.size() > 1)
+						if (!tabsInfo[tabN].isSaved)
+						{
+							ImGui::OpenPopup(tabClosePopupName);
+							tabExitOpen = true;
+						}
+						else
+						{
+							deletedTabIndex = tabN;
+							if (tabN == tabsInfo.size() - 1)
+							{
+								ImGuiContext& g = *GImGui;
+								ImGui::SetFocusID(g.CurrentTabBar->Tabs[tabN-1].ID, ImGui::GetCurrentWindow());
+							}
+							// Unfocus so the next items won't get deleted (This can also be achieved by checking if DEL was not down)
+							//ImGui::SetWindowFocus(nullptr);
+						}
 				}
+
+				else if (ImGui::IsKeyDown(ImGuiKey_F2))
+				{
+					ImGui::OpenPopup(popupTextEdit);
+				}
+
+				if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+					selectedTab--;
+
+				if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+					selectedTab++;
+
+				if (io.KeyCtrl)
+				{
+					if (pressedKeys[0] == ImGuiKey_W)
+						if (tabsInfo.size() > 1)
+							if (!tabsInfo[tabN].isSaved)
+							{
+								ImGui::OpenPopup(tabClosePopupName);
+								tabExitOpen = true;
+							}
+							else
+							{
+								deletedTabIndex = tabN;
+								if (tabN == tabsInfo.size() - 1)
+								{
+									ImGuiContext& g = *GImGui;
+									ImGui::SetFocusID(g.CurrentTabBar->Tabs[tabN - 1].ID, ImGui::GetCurrentWindow());
+								}
+							}
+				}
+
+				selectedTab = std::clamp(selectedTab, 0, (int)tabsInfo.size() - 1);
 			}
 
-			if (ImGui::IsItemClicked(1) || (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)))
+			if (ImGui::BeginPopup(popupTextEdit, ImGuiWindowFlags_NoMove))
+			{
+				ImGui::SetKeyboardFocusHere(0);
+				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32, ImGuiInputTextFlags_AutoSelectAll))
+				{
+					char defaultTabName[8]{ 0 };
+					snprintf(defaultTabName, 8, "Tab %i", tabN);
+					tabsInfo[tabN].isSaved = !strcmp(defaultTabName, tabsInfo[tabN].name);
+				}
+				ImGui::EndPopup();
+			}
+
+			if (ImGui::IsItemClicked(1) || (ImGui::IsItemHovered() && (ImGui::IsMouseDoubleClicked(0))))
 			{
 #ifdef _DEBUG
 				printf("Open tab %i tooltip\n", tabN);
@@ -1501,10 +1610,16 @@ int OnGui()
 				ImGui::OpenPopup(popupName);
 			}
 
-			if (ImGui::BeginPopup(popupName))
+			if (ImGui::BeginPopup(popupName, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings))
 			{
 				// Check if this name already exists
-				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32)) {}
+				ImGui::SetKeyboardFocusHere(0);
+				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32, ImGuiInputTextFlags_AutoSelectAll))
+				{
+					char defaultTabName[8]{ 0 };
+					snprintf(defaultTabName, 8, "Tab %i", tabN);
+					tabsInfo[tabN].isSaved = !strcmp(defaultTabName, tabsInfo[tabN].name);
+				}
 
 				if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
 					ImGui::CloseCurrentPopup();
@@ -1547,7 +1662,7 @@ int OnGui()
 
 				if (ImGui::Button("Save", { popupAvail.x / 3, 0 }))
 				{
-					if(SaveMeasurements())
+					if (SaveMeasurements())
 						deletedTabIndex = tabN;
 					ImGui::CloseCurrentPopup();
 					tabExitOpen = false;
@@ -1560,7 +1675,7 @@ int OnGui()
 					tabExitOpen = false;
 				}
 				ImGui::SameLine();
-				if (ImGui::Button("Close", { popupAvail.x / 3, 0 }))
+				if (ImGui::Button("Cancel", { popupAvail.x / 3, 0 }))
 				{
 					ImGui::CloseCurrentPopup();
 					tabExitOpen = false;
@@ -1585,7 +1700,7 @@ int OnGui()
 			auto newTab = TabInfo();
 			strcat_s<32>(newTab.name, std::to_string(tabsInfo.size()).c_str());
 			tabsInfo.push_back(newTab);
-			selectedTab = tabsInfo.size() - 1;
+			//selectedTab = tabsInfo.size() - 1;
 
 			//ImGui::EndTabItem(); 
 		}
@@ -1595,10 +1710,22 @@ int OnGui()
 		ImGui::EndTabBar();
 	}
 
+	if (ImGui::IsItemHovered())
+	{
+		auto mouseDelta = io.MouseWheel;
+		selectedTab += mouseDelta;
+		selectedTab = std::clamp(selectedTab, 0, (int)tabsInfo.size() - 1);
+	}
+
+
 	if (deletedTabIndex >= 0)
 	{
 		tabsInfo.erase(tabsInfo.begin() + deletedTabIndex);
-		selectedTab -= 1;
+		selectedTab = max(selectedTab - 1, 0);
+		//char tabNameLabel[48];
+		//snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[selectedTab].name, selectedTab);
+
+		//ImGui::SetFocusID(ImGui::GetID(tabNameLabel), ImGui::GetCurrentWindow());
 	}
 
 	const auto avail = ImGui::GetContentRegionAvail();
@@ -1610,6 +1737,10 @@ int OnGui()
 
 		//ImGui::Text("Time is: %ims", clock());
 		ImGui::Text("Time is: %lu\xC2\xB5s", micros());
+
+		ImGui::SameLine();
+
+		ImGui::Text("Serial Staus: %i", serialStatus);
 
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
@@ -1631,7 +1762,7 @@ int OnGui()
 		ImGui::BeginGroup();
 
 		ImGui::PushItemWidth(80);
-		if (ImGui::BeginCombo("Port", Serial::availablePorts[selectedPort].c_str()))
+		if (ImGui::BeginCombo("Port", Serial::availablePorts.size() > 0 ? Serial::availablePorts[selectedPort].c_str() : "Not Found"))
 		{
 			for (size_t i = 0; i < Serial::availablePorts.size(); i++)
 			{
@@ -1896,7 +2027,7 @@ int OnGui()
 			}
 
 		ImGuiListClipper clipper;
-		clipper.Begin(_latencyTestsCopy.size());
+		clipper.Begin(_latencyTestsCopy.size(), ImGui::GetTextLineHeightWithSpacing());
 		while (clipper.Step())
 			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
 			{
@@ -1932,6 +2063,11 @@ int OnGui()
 				ImGui::PopID();
 			}
 
+
+		if (wasItemAddedGUI)
+			ImGui::SetScrollHereY();
+
+
 		ImGui::EndTable();
 	}
 
@@ -1941,7 +2077,7 @@ int OnGui()
 	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
 	ImGui::Text("Measurement notes");
 	auto notesAvail = ImGui::GetContentRegionAvail();
-	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(notesAvail.y - detectionRectSize.y - 5, 600) });
+	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(notesAvail.y - detectionRectSize.y - 5, 600) }, ImGuiInputTextFlags_NoHorizontalScroll);
 	//ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
 
 	ImGui::EndGroup();
@@ -1963,48 +2099,68 @@ int OnGui()
 
 	if (isExiting)
 	{
-		if (!tabsInfo[selectedTab].isSaved)
+
+
+		//for (size_t i = 0; i < tabsInfo.size(); i++)
+		//{
+		//	if (!tabsInfo[i].isSaved)
+		//		unsavedTabs.push_back(i);
+		//}
+
+		if (unsavedTabs.size() > 0)
 		{
 			isExitingWindowOpen = true;
+			selectedTab = unsavedTabs[0];
 			ImGui::OpenPopup("Exit?");
 		}
-	}
 
-	if (ImGui::BeginPopupModal("Exit?", &isExitingWindowOpen, ImGuiWindowFlags_AlwaysAutoResize))
-	{
-		ImGui::Text("Are you sure you want to exit before saving?");
-
-		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
-
-		if (ImGui::Button("Save and exit"))
+		if (ImGui::BeginPopupModal("Exit?", &isExitingWindowOpen, ImGuiWindowFlags_AlwaysAutoResize))
 		{
-			if (SaveMeasurements())
+			ImGui::Text("Are you sure you want to exit before saving?");
+			ImGui::SameLine();
+			ImGui::TextUnformatted(tabsInfo[selectedTab].name);
+
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
+
+			if (ImGui::Button("Save and exit"))
+			{
+				if (SaveMeasurements())
+				{
+					ImGui::CloseCurrentPopup();
+					isExitingWindowOpen = false;
+					unsavedTabs.erase(unsavedTabs.begin());
+					if (unsavedTabs.size() > 0)
+						selectedTab = unsavedTabs[0];
+					else
+						return 2;
+				}
+				else
+					printf("Could not save the file");
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Exit"))
+			{
+				ImGui::CloseCurrentPopup();
+				unsavedTabs.erase(unsavedTabs.begin());
+				isExitingWindowOpen = false;
+				//ImGui::EndPopup();
+				if (unsavedTabs.size() > 0)
+					selectedTab = unsavedTabs[0];
+				else
+					return 2;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
 			{
 				ImGui::CloseCurrentPopup();
 				isExitingWindowOpen = false;
-				return 2;
+				isExiting = false;
 			}
-			else
-				printf("Could not save the file");
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Exit"))
-		{
-			ImGui::CloseCurrentPopup();
-			isExitingWindowOpen = false;
 			ImGui::EndPopup();
-			return 2;
 		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel"))
-		{
-			ImGui::CloseCurrentPopup();
-			isExitingWindowOpen = false;
-			isExiting = false;
-		}
-		ImGui::EndPopup();
 	}
 
+	wasItemAddedGUI = false;
 	lastFrameGui = micros();
 
 	return 0;
@@ -2018,8 +2174,9 @@ void GotSerialChar(char c)
 	printf("Got: %c\n", c);
 #endif
 
-	// 5 numbers should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
-	static BYTE resultBuffer[5]{ 0 };
+	// 6 digits should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
+	const size_t resultBufferSize = 6;
+	static BYTE resultBuffer[resultBufferSize]{ 0 };
 	static BYTE resultNum = 0;
 
 	static std::chrono::steady_clock::time_point internalStartTime;
@@ -2060,9 +2217,12 @@ void GotSerialChar(char c)
 				}
 			}
 		}
+		return;
 		break;
 	case Status_WaitingForResult:
-		internalEndTime = std::chrono::high_resolution_clock::now();
+		if (resultNum == 0)
+			internalEndTime = std::chrono::high_resolution_clock::now();
+
 		// e for end (end of the numbers)
 		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added. (Little did he know)
 		if (c == 'e')
@@ -2071,9 +2231,19 @@ void GotSerialChar(char c)
 			unsigned int internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
 			unsigned int externalTime = 0;
 			// Convert the byte array to int
-			for (int i = 0; i < resultNum; i++)
+			for (size_t i = 0; i < min(resultNum, resultBufferSize); i++)
 			{
 				externalTime += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
+			}
+
+			resultNum = 0;
+			std::fill_n(resultBuffer, resultBufferSize, 0);
+
+			if (max(externalTime * 1000, internalTime) > 1000000 || min(externalTime * 1000, internalTime) < 1000)
+			{
+				serialStatus = Status_Idle;
+				ZeroMemory(resultBuffer, resultBufferSize);
+				break;;
 			}
 
 			wasMouseClickSent = false;
@@ -2103,8 +2273,7 @@ void GotSerialChar(char c)
 
 			reading.index = size;
 			tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
-			resultNum = 0;
-			std::fill_n(resultBuffer, 5, 0);
+			wasItemAddedGUI = true;
 			//_write(Serial::fd, "p", 1);
 			Serial::Write("p", 1);
 			pingStartTime = std::chrono::high_resolution_clock::now();
@@ -2143,6 +2312,12 @@ void GotSerialChar(char c)
 	default:
 		break;
 	}
+
+	// Something was missed, better remove the last measurement
+	//if (c == 'l' && serialStatus == Status_WaitingForResult)
+	//{
+	//	serialStatus = Status_Idle;
+	//}
 
 #ifdef _DEBUG
 	printf("char receive delay: %lld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - lastTimeGotChar).count());
@@ -2324,7 +2499,7 @@ void HandleSerial()
 		return;
 
 
-}
+		}
 
 void CloseSerial()
 {
@@ -2340,11 +2515,22 @@ bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 	if (GUI::g_pSwapChain->GetContainingOutput(&output) != S_OK)
 		return false;
 
-	if (output->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM, NULL, size, modes) != S_OK)
+	//DXGI_FORMAT_R8G8B8A8_UNORM
+	if (output->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM, 0, size, modes) != S_OK)
 	{
 		return false;
 		printf("Error getting the display modes\n");
 	}
+
+	//if (*size > 0)
+	//{
+	//	auto targetMode = modes[*size - 1];
+	//	targetMode.RefreshRate.Numerator = 100000000;
+	//	DXGI_MODE_DESC matchMode;
+	//	output->FindClosestMatchingMode(&targetMode, &matchMode, GUI::g_pd3dDevice);
+
+	//	printf("Best mode match: %ix%i@%iHz\n", matchMode.Width, matchMode.Height, (matchMode.RefreshRate.Numerator / matchMode.RefreshRate.Denominator));
+	//}
 
 	return true;
 }
@@ -2393,15 +2579,29 @@ void HandleGameMode()
 // Returns true if should exit, false otherwise
 bool OnExit()
 {
-	if (tabsInfo[selectedTab].isSaved)
+	bool isSaved = true;
+
+	unsavedTabs.clear();
+
+	for (size_t i = 0; i < tabsInfo.size(); i++)
+	{
+		if (!tabsInfo[i].isSaved)
+		{
+			isSaved = false;
+			unsavedTabs.push_back(i);
+		}
+	}
+
+	if (isSaved)
 	{
 		// Gui closes itself from the wnd messages
 		Serial::Close();
 
 		exit(0);
 	}
+
 	isExiting = true;
-	return tabsInfo[selectedTab].isSaved;
+	return isSaved;
 }
 
 // Main code
@@ -2425,15 +2625,15 @@ int main(int args, char** argv)
 
 	//::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 
-	static unsigned int frameIndex = 0;
-	static unsigned int frameSum = 0;
+	static size_t frameIndex = 0;
+	static uint64_t frameSum = 0;
 
 	bool done = false;
 
 	ImGuiIO& io = ImGui::GetIO();
 
 	auto defaultTab = TabInfo();
-	defaultTab.name[4] = '0';
+	defaultTab.name[4] = '\0';
 	tabsInfo.push_back(defaultTab);
 
 	UINT modesNum = 256;
@@ -2510,7 +2710,17 @@ int main(int args, char** argv)
 		currentUserData.performance.VSync = backupUserData.performance.VSync = false;
 
 		printf("found %u monitor modes\n", modesNum);
-		currentUserData.performance.guiLockedFps = monitorModes[modesNum - 1].RefreshRate.Numerator * 2;
+		currentUserData.performance.guiLockedFps = (monitorModes[modesNum - 1].RefreshRate.Numerator / monitorModes[modesNum - 1].RefreshRate.Denominator) * 2;
+
+#ifdef _DEBUG
+
+		for (UINT i = 0; i < modesNum; i++)
+		{
+			printf("Mode %i: %ix%i@%iHz\n", i, monitorModes[i].Width, monitorModes[i].Height, (monitorModes[modesNum - 1].RefreshRate.Numerator / monitorModes[modesNum - 1].RefreshRate.Denominator));
+		}
+
+#endif // DEBUG
+
 		backupUserData.performance.guiLockedFps = currentUserData.performance.guiLockedFps;
 
 		currentUserData.style.mainColorBrightness = backupUserData.style.mainColorBrightness = .1f;
@@ -2523,6 +2733,8 @@ int main(int args, char** argv)
 	LoadCurrentUserConfig();
 
 	Serial::FindAvailableSerialPorts();
+
+	printf("Found %u serial Ports", Serial::availablePorts.size());
 
 
 	//BOOL fScreen;
@@ -2537,7 +2749,7 @@ int main(int args, char** argv)
 	//	printf("Error setting up the Serial Port");
 
 	// used to cover the time of rendering a frame when calculating when a next frame should be displayed
-	unsigned int lastFrameRenderTime = 0;
+	uint64_t lastFrameRenderTime = 0;
 
 	int GUI_Return_Code = 0;
 
@@ -2567,7 +2779,18 @@ MainLoop:
 
 		uint64_t newFrame = curTime - lastFrame;
 
+		if (newFrame > 1000000)
+		{
+			totalFrames++;
+			lastFrame = curTime;
+			continue;
+		}
+
 		// Average frametime calculation
+		//printf("Frame: %i\n", frameIndex);
+		frameIndex = min(AVERAGE_FRAME_AMOUNT - 1, frameIndex);
+		if (frames[frameIndex] > 10000)
+			auto x = 0;
 		frameSum -= frames[frameIndex];
 		frameSum += newFrame;
 		frames[frameIndex] = newFrame;

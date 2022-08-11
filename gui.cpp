@@ -10,7 +10,7 @@
 using namespace GUI;
 
 // Data
-static ID3D11Device* g_pd3dDevice = NULL;
+//static ID3D11Device* g_pd3dDevice = NULL;
 static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
 static ID3D11RenderTargetView* g_mainRenderTargetView = NULL;
 
@@ -21,7 +21,7 @@ void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static int windowX = 1280, windowY = 720;
+static int windowX = 1080, windowY = 740;
 
 float defaultFontSize = 13.0f;
 
@@ -226,6 +226,8 @@ void GUI::LoadFonts(float fontSizeMultiplier)
 	io.FontDefault = io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Regular.ttf", defaultFontSize, &config);
 	io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Bold.ttf", defaultFontSize, &config);
 
+	printf("Loaded Courier Prime\n");
+
 	config.GlyphOffset.y = -1;
 	io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
 	io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Black.ttf", defaultFontSize, &config);
@@ -336,6 +338,58 @@ bool CreateDeviceD3D(HWND hWnd)
 	if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
 		return false;
 
+	IDXGIDevice* pDXGIDevice = nullptr;
+	auto hr = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void**)&pDXGIDevice);
+	
+	IDXGIAdapter* pDXGIAdapter = nullptr;
+	hr = pDXGIDevice->GetAdapter(&pDXGIAdapter);
+	
+	IDXGIFactory* pIDXGIFactory = nullptr;
+	pDXGIAdapter->GetParent(__uuidof(IDXGIFactory), (void**)&pIDXGIFactory);
+	
+	// This will never find a Intel UHD gpu for some reason
+	UINT iAdapter = 0;
+	IDXGIAdapter* pAdapter;
+	while (pIDXGIFactory->EnumAdapters(iAdapter, &pAdapter) != DXGI_ERROR_NOT_FOUND)
+	{
+		GUI::vAdapters.push_back(pAdapter);
+		UINT iOutput = 0;
+		IDXGIOutput* pOutput;
+
+#ifdef _DEBUG
+		DXGI_ADAPTER_DESC desc;
+		pAdapter->GetDesc(&desc);
+		wprintf(L"Current Adapter: %s\n", desc.Description);
+#endif
+
+		while (pAdapter->EnumOutputs(iOutput, &pOutput) != DXGI_ERROR_NOT_FOUND)
+		{
+			GUI::vOutputs.push_back(pOutput);
+
+			UINT modesNum = 256;
+			DXGI_MODE_DESC monitorModes[256];
+			pOutput->GetDisplayModeList(DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM, 0, &modesNum, monitorModes);
+
+#ifdef _DEBUG
+			for (UINT i = 0; i < modesNum; i++)
+			{
+				printf("Mode %i: %ix%i@%iHz\n", i, monitorModes[i].Width, monitorModes[i].Height, (monitorModes[modesNum - 1].RefreshRate.Numerator / monitorModes[modesNum - 1].RefreshRate.Denominator));
+			}
+#endif
+
+			++iOutput;
+		}
+
+		++iAdapter;
+	}
+
+#ifdef _DEBUG
+	DXGI_ADAPTER_DESC desc;
+	pAdapter->GetDesc(&desc);
+
+	wprintf(L"Selected Adapter: %s\n", desc.Description);
+#endif
+
 	CreateRenderTarget();
 	return true;
 }
@@ -378,6 +432,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
 		{
 			CleanupRenderTarget();
+			//UINT x = (UINT)LOWORD(lParam), y = (UINT)HIWORD(lParam);
 			g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
 			CreateRenderTarget();
 		}
