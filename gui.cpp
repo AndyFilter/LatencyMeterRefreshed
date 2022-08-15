@@ -340,7 +340,7 @@ bool CreateDeviceD3D(HWND hWnd)
 
 	IDXGIDevice* pDXGIDevice = nullptr;
 	auto hr = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void**)&pDXGIDevice);
-	
+
 	IDXGIAdapter* pDXGIAdapter = nullptr;
 	hr = pDXGIDevice->GetAdapter(&pDXGIAdapter);
 	
@@ -385,7 +385,7 @@ bool CreateDeviceD3D(HWND hWnd)
 
 #ifdef _DEBUG
 	DXGI_ADAPTER_DESC desc;
-	pAdapter->GetDesc(&desc);
+	pDXGIAdapter->GetDesc(&desc);
 
 	wprintf(L"Selected Adapter: %s\n", desc.Description);
 #endif

@@ -153,7 +153,7 @@ TODO:
 - Custom Fonts (?)
 + Multiple tabs for measurements
 + Unsaved tabs alert
-- Move IO to a separate thread (ONLY if it doens't introduce additional latency)
++ Move IO to a separate thread (ONLY if it doens't introduce additional latency)
 + Reset status on disconnect and clear
 + Fix measurement index when removing (or don't, I don' know)
 + Auto scroll measurements on new added
@@ -162,6 +162,7 @@ TODO:
 + Check if ANY tab is unsaved when closing
 - Pack Save (Save all the tabs into a single file) (?)
 - Configuration Screen
+- Pack fonts into a byte array and load them that way.
 
 */
 
@@ -1762,7 +1763,7 @@ int OnGui()
 		ImGui::BeginGroup();
 
 		ImGui::PushItemWidth(80);
-		if (ImGui::BeginCombo("Port", Serial::availablePorts.size() > 0 ? Serial::availablePorts[selectedPort].c_str() : "Not Found"))
+		if (ImGui::BeginCombo("Port", Serial::availablePorts.size() > 0 ? Serial::availablePorts[selectedPort].c_str() : "0 Found"))
 		{
 			for (size_t i = 0; i < Serial::availablePorts.size(); i++)
 			{
@@ -2758,7 +2759,7 @@ MainLoop:
 	// Main Loop
 	while (!done)
 	{
-		Serial::HandleInput();
+		//Serial::HandleInput();
 
 		//if(isGameMode)
 		//	HandleGameMode();

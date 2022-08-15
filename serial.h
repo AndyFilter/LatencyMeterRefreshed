@@ -6,7 +6,7 @@
 #include <io.h>
 #include <fcntl.h>
 
-#define BufferedSerialComm
+//#define BufferedSerialComm
 
 namespace Serial
 {
@@ -18,13 +18,9 @@ namespace Serial
 
 	inline std::vector<std::string> availablePorts;
 	inline bool isConnected{false};
+
 	inline HANDLE hPort;
-	inline FILE* hFile;
-
-#ifdef BufferedSerialComm
 	inline int fd = -1;
-#endif // BufferedSerialComm
 
-
-	//inline std::thread ioThread;
+	inline std::thread ioThread;
 }
