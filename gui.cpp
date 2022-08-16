@@ -6,6 +6,7 @@
 
 #include "gui.h"
 #include "resource.h"
+#include "Fonts.h"
 
 using namespace GUI;
 
@@ -223,14 +224,18 @@ void GUI::LoadFonts(float fontSizeMultiplier)
 
 	defaultFontSize += fontSizeMultiplier;
 
-	io.FontDefault = io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Regular.ttf", defaultFontSize, &config);
-	io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Bold.ttf", defaultFontSize, &config);
+	//io.FontDefault = io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Regular.ttf", defaultFontSize, &config);
+	//io.Fonts->AddFontFromFileTTF("../Fonts\\CourierPrime-Bold.ttf", defaultFontSize, &config);
+	io.Fonts->AddFontFromMemoryCompressedTTF(CourierPrimeRegular_compressed_data, 1, defaultFontSize, &config);
+	io.Fonts->AddFontFromMemoryCompressedTTF(CourierPrimeBold_compressed_data, 1, defaultFontSize, &config);
 
 	printf("Loaded Courier Prime\n");
 
 	config.GlyphOffset.y = -1;
-	io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
-	io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Black.ttf", defaultFontSize, &config);
+	//io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-SemiBold.ttf", defaultFontSize, &config);
+	//io.Fonts->AddFontFromFileTTF("../Fonts\\SourceSansPro-Black.ttf", defaultFontSize, &config);
+	io.Fonts->AddFontFromMemoryCompressedTTF(SourceSansProSemiBold_compressed_data, 1, defaultFontSize, &config);
+	io.Fonts->AddFontFromMemoryCompressedTTF(SourceSansProBlack_compressed_data, 1, defaultFontSize, &config);
 	config.GlyphOffset.y = 0;
 
 	//io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Gothicb.ttf", 14.f);

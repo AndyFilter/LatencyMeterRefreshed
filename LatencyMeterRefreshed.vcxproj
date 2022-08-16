@@ -180,6 +180,7 @@
     <ClInclude Include="External\ImGui\imstb_rectpack.h" />
     <ClInclude Include="External\ImGui\imstb_textedit.h" />
     <ClInclude Include="External\ImGui\imstb_truetype.h" />
+    <ClInclude Include="Fonts.h" />
     <ClInclude Include="helperJson.h" />
     <ClInclude Include="External\nlohmann\json.hpp" />
     <ClInclude Include="gui.h" />

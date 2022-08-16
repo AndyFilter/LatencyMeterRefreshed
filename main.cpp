@@ -162,7 +162,7 @@ TODO:
 + Check if ANY tab is unsaved when closing
 - Pack Save (Save all the tabs into a single file) (?)
 - Configuration Screen
-- Pack fonts into a byte array and load them that way.
++ Pack fonts into a byte array and load them that way.
 
 */
 
