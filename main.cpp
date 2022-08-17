@@ -150,12 +150,12 @@ TODO:
 + Game integration. Please don't get me banned again (needs testing) Update: (testing done)
 + Fix overwriting saves
 + Unsaved work notification
++ Unsaved tabs alert
 - Custom Fonts (?)
 + Multiple tabs for measurements
-+ Unsaved tabs alert
 + Move IO to a separate thread (ONLY if it doens't introduce additional latency)
-+ Reset status on disconnect and clear
 + Fix measurement index when removing (or don't, I don' know)
++ Reset status on disconnect and clear
 + Auto scroll measurements on new added
 + Changing tab name sets the status to unsaved
 + Fix too many tabs obscuring tabs beneath them
