@@ -1,6 +1,6 @@
 # LatencyMeterRefreshed
 
-[![GitHub top language](https://img.shields.io/github/languages/top/AndyFilter/Latency-Meter-CSharp.svg)](https://en.wikipedia.org/wiki/C_Sharp_(programming_language))  [![Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg)](https://en.wikipedia.org/wiki/Microsoft_Windows) ![GitHub all releases](https://img.shields.io/github/downloads/AndyFilter/Latency-Meter-CSharp/total.svg) [![GitHub](https://img.shields.io/github/license/AndyFilter/Latency-Meter-CSharp.svg)](https://github.com/AndyFilter/Latency-Meter-CSharp/blob/main/LICENSE) 
+[![GitHub top language](https://img.shields.io/github/languages/top/AndyFilter/LatencyMeterRefreshed.svg)](https://en.wikipedia.org/wiki/C%2B%2B)  [![Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg)](https://en.wikipedia.org/wiki/Microsoft_Windows) ![GitHub all releases](https://img.shields.io/github/downloads/AndyFilter/LatencyMeterRefreshed/total.svg) [![GitHub](https://img.shields.io/github/license/AndyFilter/LatencyMeterRefreshed.svg)](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/main/LICENSE) 
 
 This program lets you **measure latency of your system** given that you have Arduino. ***Now in C++!***
 
@@ -30,7 +30,7 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 
 **For the ease of use** I would suggest connecting **photoresistor not on the same board as the button**, even better just don't use a board for it! Because you will need to place it in the correct place of your monitor.
 
-![Arduino UNO Schema](https://media.discordapp.net/attachments/687599007643729964/1009519797748375683/LightsensorLatencyMeterTrans.png)
+![LightsensorLatencyMeterTrans](https://user-images.githubusercontent.com/69699046/185306683-2e72f948-9c60-44e9-89dd-4bbfdb6eaaa6.png)
 
 3. Connect the Arduino (or the microcontroller of choice) to the PC via USB.
 4. Upload the [***Code***](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/main/Arduino/SystemLatencyMeter.ino) onto the board.
@@ -49,7 +49,7 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 
 # Modifications
 
-If you want to change for example the baudrate, you will not only need to change it in the program's [code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the microcontrollers's code. It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub milliseconds delays** and also is reliable. All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
+If you want to change for example the baudrate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontrollers's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13). It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub milliseconds delays** and also is reliable. All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
 
 # Questions and Issues
 
