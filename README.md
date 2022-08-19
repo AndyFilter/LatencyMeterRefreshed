@@ -6,7 +6,7 @@ This program lets you **measure latency of your system** given that you have Ard
 
 # Measure performance and latency of your PC
 
-Are you Interested in measuring the latency of your system, but can't afford **750\$ monitor**? Well in that case you are not alone! This program let's you even measure the latency of single component like **mouse latency, system latency,** or just overall latency. For not more than **10$**!
+Are you interested in measuring the latency of your system, but can't afford a **750\$ monitor**? Well in that case you are not alone! This program lets you measure even the latency of a single component like **mouse latency, system latency,** or just overall latency. For not more than **10$**!
 
 # What will you need
 
@@ -18,7 +18,7 @@ Are you Interested in measuring the latency of your system, but can't afford **7
 - Windows 10 / 11(not tested) and basic knowledge of using it.
   
   # How to install
-1. Make sure you are in possession of **Arduino** or other microcontroller that allows for a serial communication with a PC.
+1. Make sure you are in possession of an **Arduino** or other microcontroller that allows for serial communication with a PC.
 2. Connect the Arduino to the other elements as follows:
 
 > **Light_Sensor - A0,**  
@@ -26,7 +26,7 @@ Are you Interested in measuring the latency of your system, but can't afford **7
 
 I would recommend putting a **500Ω resistor in series with the light sensor**. The button is configured to use arduino-UNO's built-in **"pullup resistor" (button, INPUT_PULLUP)**.
 
-**Reminder!** button is reversed, I mean the code detects press of a button normally, but the state is different (if (buttonState == LOW)). All it means is that you plug it to digital pin 2 and to ground.
+**Reminder!** The button is reversed, It means that the code detects press of a button normally, but the state is different (if (buttonState == LOW)). All it means is that you plug it to digital pin 2 and to **ground**.
 
 **For the ease of use** I would suggest connecting **photoresistor not on the same board as the button**, even better just don't use a board for it! Because you will need to place it in the correct place of your monitor.
 
@@ -38,18 +38,18 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 
 # How to use
 
-1. Make sure you have everything connected as shown in the schematic above
-2. Connect the Arduino the the PC via USB.
+1. Make sure you have everything wired up as shown in the schematic above
+2. Connect the Arduino to the PC via USB.
 3. Open the program and set the correct **serial port of the Arduino**.
 4. Move the photoresistor so that it *looks* at the black rectangle at the bottom of the program.
-5. Press *Connect*. If everything goes right program should not close and you should see no errors.
+5. Press *Connect*. If everything goes right, the program should not close, and you should see no errors.
 6. Press the **Button** connected to the **PIN 2** of the Arduino.
 7. The measurements should appear on the screen!
 8. You can now **Save** them, and if that's not your first time using the program you can even **Open** the saves you exported earlier!
 
 # Modifications
 
-If you want to change for example the baudrate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontrollers's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13). It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub milliseconds delays** and also is reliable. All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
+If you want to change for example the baudrate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontroller's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13). It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub millisecond delays** and also is reliable. All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
 
 # Questions and Issues
 
