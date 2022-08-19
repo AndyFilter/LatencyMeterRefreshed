@@ -74,8 +74,14 @@ struct PerformanceData
 	unsigned int VSync;
 };
 
+struct MiscData
+{
+	bool localUserData = false;
+};
+
 struct UserData
 {
 	StyleData style;
 	PerformanceData performance;
+	MiscData misc;
 };

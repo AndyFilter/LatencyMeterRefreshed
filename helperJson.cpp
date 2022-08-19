@@ -4,12 +4,17 @@
 #include "helperJson.h"
 #include "External/nlohmann/json.hpp"
 
-#include <Windows.h>
+#include <windows.h>
+#include <initguid.h>
+#include <KnownFolders.h>
+#include <ShlObj.h>
+#include <wchar.h>
 
 using json = nlohmann::json;
 
-const char* configFileName{ "UserData.json" };
+const wchar_t* configFileName{ L"UserData.json" };
 const char* savesPath{ "Saves/" };
+const wchar_t* appDataFolderName{ L"\\LatencyMeterRefreshed\\" };
 
 int LatencyIndexSort(const void* a, const void* b)
 {
@@ -46,6 +51,15 @@ void to_json(json& j, const PerformanceData& performanceData)
 	};
 }
 
+void to_json(json& j, const MiscData& miscData)
+{
+	j = json
+	{
+
+		{"localUserData", miscData.localUserData},
+	};
+}
+
 void to_json(json& j, const UserData& userData)
 {
 	//json styleJson = userData.style;
@@ -54,6 +68,7 @@ void to_json(json& j, const UserData& userData)
 	{
 		{ "style", userData.style },
 		{ "performance", userData.performance },
+		{ "misc", userData.misc },
 	};
 }
 
@@ -87,6 +102,11 @@ void from_json(const json& j, PerformanceData& performanceData)
 	j.at("VSync").get_to(performanceData.VSync);
 }
 
+void from_json(const json& j, MiscData& miscData)
+{
+	j.at("localUserData").get_to(miscData.localUserData);
+}
+
 void from_json(const json& j, StyleData& styleData)
 {
 	j.at("mainColor").get_to(styleData.mainColor);
@@ -104,6 +124,7 @@ void from_json(const json& j, UserData& userData)
 {
 	j.at("style").get_to(userData.style);
 	j.at("performance").get_to(userData.performance);
+	j.at("misc").get_to(userData.misc);
 	//auto &style = j.at("style");
 	//style.at("mainColor").get_to(userData.style.mainColor);
 	//style.at("fontColor").get_to(userData.style.fontColor);
@@ -128,13 +149,83 @@ void from_json(const json& j, TabInfo& reading)
 	strcpy_s(reading.name, j.value("name", "").c_str());
 }
 
+std::wstring HelperJson::GetAppDataUserConfingPath()
+{
+	PWSTR appDataPath = NULL;
+	if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &appDataPath) == S_OK)
+	{
+		std::wstring filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(configFileName);
+		filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+
+		std::ifstream configFile(filePath);
+
+		configFile.close();
+		return filePath;
+	}
+
+	return L"";
+}
+
+std::wstring HelperJson::GetLocalUserConfingPath()
+{
+	wchar_t localPath[_MAX_PATH];
+	GetModuleFileNameW(NULL, localPath, _MAX_PATH);
+
+	std::wstring filePath = std::wstring(localPath) + std::wstring(configFileName);
+	filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+
+	std::ifstream configFile(filePath);
+
+	configFile.close();
+	return filePath;
+}
+
+std::wstring GetUserDataPath(bool islocal)
+{
+	std::ofstream configFile;
+	std::wstring filePath;
+	if (islocal)
+	{
+		wchar_t localPath[_MAX_PATH];
+		GetModuleFileNameW(NULL, localPath, _MAX_PATH);
+
+		filePath = std::wstring(localPath) + std::wstring(configFileName);
+		filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+
+		configFile = std::ofstream(filePath);
+	}
+
+	else
+	{
+		PWSTR appDataPath = NULL;
+		if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &appDataPath) == S_OK)
+		{
+			filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(configFileName);
+			filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+
+			std::filesystem::create_directories(std::wstring(appDataPath) + std::wstring(appDataFolderName));
+
+			configFile = std::ofstream(filePath);
+		}
+	}
+
+	if (!configFile.good())
+	{
+		configFile.close();
+		return L"";
+	}
+
+	configFile.close();
+
+	return filePath;
+}
+
 void HelperJson::SaveUserData(UserData& userData)
 {
-	char localPath[_MAX_PATH + 1];
-	GetModuleFileName(NULL, localPath, _MAX_PATH);
+	std::wstring filePath = GetUserDataPath(userData.misc.localUserData);
 
-	std::string filePath = std::string(localPath);
-	filePath = filePath.substr(0, filePath.find_last_of("\\/") + 1) + std::string(configFileName);
+	if (filePath.empty())
+		return;
 
 	std::ofstream configFile(filePath);
 
@@ -157,18 +248,37 @@ void HelperJson::SaveUserStyle(StyleData& styleData)
 
 bool HelperJson::GetUserData(UserData& userData)
 {
-	char localPath[_MAX_PATH + 1];
-	GetModuleFileName(NULL, localPath, _MAX_PATH);
+	std::wstring filePath;
 
-	std::string filePath = std::string(localPath) + std::string(configFileName);
-	filePath = filePath.substr(0, filePath.find_last_of("\\/") + 1) + std::string(configFileName);
+	wchar_t localPath[_MAX_PATH];
+	GetModuleFileNameW(NULL, localPath, _MAX_PATH);
+
+	filePath = std::wstring(localPath) + std::wstring(configFileName);
+	filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
 
 	std::ifstream configFile(filePath);
 
 	if (!configFile.good())
 	{
 		configFile.close();
-		return false;
+
+		PWSTR appDataPath = NULL;
+		if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &appDataPath) == S_OK)
+		{
+
+			filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(configFileName);
+			filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+
+			configFile = std::ifstream(filePath);
+
+			if (!configFile.good())
+			{
+				configFile.close();
+				return false;
+			}
+		}
+		else
+			return false;
 	}
 
 	json data = json::parse(configFile);
@@ -209,4 +319,41 @@ void HelperJson::GetLatencyTests(TabInfo& tests, char path[_MAX_PATH])
 	from_json(j, tests);
 
 	saveFile.close();
+}
+
+void HelperJson::UserConfigLocationChanged(bool isNewLocal)
+{
+	std::wstring appDataPath = GetAppDataUserConfingPath();
+	std::wstring localPath = GetLocalUserConfingPath();
+
+	bool appDataPathExists = false;
+	bool localPathExists = false;
+
+	if (!appDataPath.empty())
+	{
+		std::ifstream testFile(appDataPath);
+		appDataPathExists = testFile.good();
+		testFile.close();
+	}
+
+	if (!localPath.empty())
+	{
+		std::ifstream testFile(localPath);
+		localPathExists = testFile.good();
+		testFile.close();
+	}
+
+	if ((isNewLocal && !appDataPathExists) || (!isNewLocal && !localPathExists))
+		return;
+
+	if (isNewLocal)
+	{
+		std::filesystem::copy(appDataPath, localPath, std::filesystem::copy_options::overwrite_existing);
+		std::filesystem::remove(appDataPath);
+	}
+	else
+	{
+		std::filesystem::copy(localPath, appDataPath, std::filesystem::copy_options::overwrite_existing);
+		std::filesystem::remove(localPath);
+	}
 }

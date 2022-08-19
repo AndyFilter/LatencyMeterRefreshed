@@ -13,6 +13,7 @@
 #include "constants.h"
 #include "gui.h"
 
+// idk why I didn't just expose it in GUI.h...
 HWND hwnd;
 
 ImVec2 detectionRectSize{ 0, 200 };
@@ -22,8 +23,8 @@ uint64_t lastFrame = 0;
 
 // Frametime in microseconds
 float averageFrametime = 0;
-const unsigned int AVERAGE_FRAME_AMOUNT = 10000;
-uint64_t frames[AVERAGE_FRAME_AMOUNT]{ 0 };
+const unsigned int AVERAGE_FRAME_COUNT = 10000;
+uint64_t frames[AVERAGE_FRAME_COUNT]{ 0 };
 unsigned long long totalFrames = 0;
 
 // ---- Styling ---- (Don't ask me why I didn't create structures for these things earlier)
@@ -128,6 +129,8 @@ int selectedTab = 0;
 
 bool wasItemAddedGUI = false;
 
+bool shouldRunConfiguration = false;
+
 // Forward declaration
 void GotSerialChar(char c);
 bool SaveAsMeasurements();
@@ -161,8 +164,9 @@ TODO:
 + Fix too many tabs obscuring tabs beneath them
 + Check if ANY tab is unsaved when closing
 - Pack Save (Save all the tabs into a single file) (?)
-- Configuration Screen
++ Configuration Screen
 + Pack fonts into a byte array and load them that way.
+- Add option to display frametime (?)
 
 */
 
@@ -469,6 +473,9 @@ void SaveCurrentUserConfig()
 	//lockGuiFpsBak = lockGuiFps;
 
 	//showPlotsBak = showPlots;
+
+	if (backupUserData.misc.localUserData != currentUserData.misc.localUserData)
+		HelperJson::UserConfigLocationChanged(currentUserData.misc.localUserData);
 
 	backupUserData = currentUserData;
 
@@ -973,6 +980,12 @@ int OnGui()
 {
 	ImGuiStyle& style = ImGui::GetStyle();
 
+	if (shouldRunConfiguration)
+	{
+		ImGui::OpenPopup("Set Up");
+		shouldRunConfiguration = false;
+	}
+
 	if (ImGui::BeginMenuBar())
 	{
 		//static bool saveMeasurementsPopup = false;
@@ -1144,7 +1157,6 @@ int OnGui()
 			//UINT modesNum = 256;
 			//DXGI_MODE_DESC monitorModes[256];
 			//GUI::vOutputs[1]->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM, 0, &modesNum, monitorModes);
-			//auto x = 0;
 			//DXGI_MODE_DESC mode = monitorModes[modesNum - 1];
 			//GUI::g_pSwapChain->ResizeTarget(&mode);
 			//GUI::g_pSwapChain->ResizeBuffers(0, 1080, 1920, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
@@ -1273,7 +1285,7 @@ int OnGui()
 			static int selectedSettings = 0;
 			const auto avail = ImGui::GetContentRegionAvail();
 
-			const char* items[2]{ "Style", "Performance" };
+			const char* items[3]{ "Style", "Performance", "Misc" };
 
 			// Makes list take ({listBoxSize}*100)% width of the parent
 			float listBoxSize = 0.3f;
@@ -1443,15 +1455,30 @@ int OnGui()
 					ImGui::Checkbox("Show Plots", &currentUserData.performance.showPlots);
 					TOOLTIP("Plots can have a small impact on the performance");
 
+					ImGui::Spacing();
+
 					//ImGui::Checkbox("VSync", &currentUserData.performance.VSync);
 					ImGui::SliderInt("VSync", &(int&)currentUserData.performance.VSync, 0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
 					TOOLTIP("This setting synchronizes your monitor with the program to avoid screen tearing.\n(Adds a significant amount of latency)");
 
 					ImGui::EndChild();
-
-					break;
 				}
+
+				break;
+
+				// Misc
+			case 2:
+				if ((ImGui::BeginChild("Misc", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true)))
+				{
+					ImGui::Checkbox("Save config locally", &currentUserData.misc.localUserData);
+					TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the AppData folder");
+
+					ImGui::EndChild();
+				}
+
+				break;
 			}
+
 			ImGui::BeginGroup();
 
 			auto buttonsAvail = ImGui::GetContentRegionAvail();
@@ -1500,8 +1527,6 @@ int OnGui()
 			//selectedTab = tabsInfo.size() - 1;
 			auto flags = selectedTab == tabN ? ImGuiTabItemFlags_SetSelected : 0;
 			flags |= tabsInfo[tabN].isSaved ? 0 : ImGuiTabItemFlags_UnsavedDocument;
-			if (selectedTab == tabN && tabN == 2)
-				auto x = 0;
 			if (ImGui::BeginTabItem(tabNameLabel, NULL, flags))
 			{
 				ImGui::EndTabItem();
@@ -1687,15 +1712,6 @@ int OnGui()
 
 				ImGui::EndPopup();
 			}
-
-
-			//if (ImGui::TabItemButton((std::string("Tab ") + std::to_string(tabN)).c_str()))
-			//{
-			//	if (tabN != 0)
-			//		auto x = 0;
-			//	selectedTab = tabN;
-			//	//ImGui::EndTabItem(); 
-			//};
 		}
 
 
@@ -1753,7 +1769,7 @@ int OnGui()
 		ImGui::Text("Application average %.3f \xC2\xB5s/frame (%.1f FPS) (CPU ONLY)", averageFrametime, 1000000.f / averageFrametime);
 
 		// The buffer contains just too many frames to display them on the screen (and displaying every 10th or so frame makes no sense). Also smoothing out the data set would hurt the performance too much
-		//ImGui::PlotLines("FPS Chart", [](void* data, int idx) { return sinf(float(frames[idx%10]) / 1000); }, frames, AVERAGE_FRAME_AMOUNT);
+		//ImGui::PlotLines("FPS Chart", [](void* data, int idx) { return sinf(float(frames[idx%10]) / 1000); }, frames, AVERAGE_FRAME_COUNT);
 
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
 
@@ -2098,6 +2114,26 @@ int OnGui()
 		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1.f)),
 		false
 	);
+
+
+	if (ImGui::BeginPopupModal("Set Up", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+	{
+		ImGui::Text("Setup configuration");
+
+		ImGui::SeparatorSpace(0, { 0, 5 });
+
+		ImGui::Checkbox("Save config locally", &currentUserData.misc.localUserData);
+		TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the AppData folder");
+
+		ImGui::Spacing();
+
+		if (ImGui::Button("Save", {-1, 0}))
+		{
+			SaveCurrentUserConfig();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
 
 	static bool isExitingWindowOpen = false;
 
@@ -2637,7 +2673,8 @@ int main(int argc, char** argv)
 	ImGuiIO& io = ImGui::GetIO();
 
 	auto defaultTab = TabInfo();
-	defaultTab.name[4] = '\0';
+	defaultTab.name[4] = '0';
+	defaultTab.name[5] = '\0';
 	tabsInfo.push_back(defaultTab);
 
 	UINT modesNum = 256;
@@ -2731,10 +2768,19 @@ int main(int argc, char** argv)
 		currentUserData.style.fontColorBrightness = backupUserData.style.fontColorBrightness = .1f;
 		currentUserData.style.fontSize = backupUserData.style.fontSize = 1.f;
 
+		shouldRunConfiguration = true;
+
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
 
-	LoadCurrentUserConfig();
+	// Just imagine what would happen if user for example had a 220 character long username and path to %AppData + "imgui.ini" would exceed 260. lovely
+	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfingPath() : HelperJson::GetAppDataUserConfingPath());
+	imguiFileIniPath = imguiFileIniPath.substr(0, imguiFileIniPath.find_last_of(L"\\/") + 1) + L"imgui.ini";
+	char outputPathBuffer[MAX_PATH];
+
+	wcstombs_s(nullptr, outputPathBuffer, MAX_PATH, imguiFileIniPath.c_str(), imguiFileIniPath.size());
+
+	io.IniFilename = outputPathBuffer;
 
 	Serial::FindAvailableSerialPorts();
 
@@ -2794,15 +2840,13 @@ MainLoop:
 
 		// Average frametime calculation
 		//printf("Frame: %i\n", frameIndex);
-		frameIndex = min(AVERAGE_FRAME_AMOUNT - 1, frameIndex);
-		if (frames[frameIndex] > 10000)
-			auto x = 0;
+		frameIndex = min(AVERAGE_FRAME_COUNT - 1, frameIndex);
 		frameSum -= frames[frameIndex];
 		frameSum += newFrame;
 		frames[frameIndex] = newFrame;
-		frameIndex = (frameIndex + 1) % AVERAGE_FRAME_AMOUNT;
+		frameIndex = (frameIndex + 1) % AVERAGE_FRAME_COUNT;
 
-		averageFrametime = ((float)frameSum) / AVERAGE_FRAME_AMOUNT;
+		averageFrametime = ((float)frameSum) / AVERAGE_FRAME_COUNT;
 
 		totalFrames++;
 		lastFrame = curTime;
