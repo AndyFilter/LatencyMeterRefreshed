@@ -14,8 +14,6 @@ OVERLAPPED osReader{ 0 };
 
 //char buffer[256]{ 0 };
 
-//bool isWaitingForWrite = false;
-
 static bool isSafeToClose = false;
 
 static void (*OnCharReceived)(char c);
@@ -216,7 +214,7 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	serialParams.fOutxCtsFlow = FALSE;
 	serialParams.fOutxDsrFlow = FALSE;
 	serialParams.fDtrControl = DTR_CONTROL_DISABLE;
-	serialParams.fDsrSensitivity = FALSE; // Can be False, doesn't matter
+	serialParams.fDsrSensitivity = FALSE; // Can be False or True, doesn't matter
 	serialParams.fTXContinueOnXoff = FALSE;
 	serialParams.fOutX = FALSE;
 	serialParams.fErrorChar = FALSE;

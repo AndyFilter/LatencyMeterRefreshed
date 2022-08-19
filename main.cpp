@@ -1365,8 +1365,11 @@ int OnGui()
 
 
 				ImGui::ColorEdit4("Int. Plot", currentUserData.style.internalPlotColor);
+				TOOLTIP("Internal plot color");
 				ImGui::ColorEdit4("Ext. Plot", currentUserData.style.externalPlotColor);
+				TOOLTIP("External plot color");
 				ImGui::ColorEdit4("Input Plot", currentUserData.style.inputPlotColor);
+				TOOLTIP("Input plot color");
 
 				ApplyCurrentStyle();
 
@@ -2606,7 +2609,7 @@ bool OnExit()
 }
 
 // Main code
-int main(int args, char** argv)
+int main(int argc, char** argv)
 {
 	hwnd = GUI::Setup(OnGui);
 	GUI::onExitFunc = OnExit;
@@ -2767,7 +2770,9 @@ MainLoop:
 		// GUI Loop
 
 		uint64_t curTime = micros();
-		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ? (GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 : currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
+		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ? 
+			(GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 :
+			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
 		{
 			uint64_t frameStartRender = curTime;
 			if (GUI_Return_Code = GUI::DrawGui())
