@@ -12,6 +12,8 @@
 #include "helperJson.h"
 #include "constants.h"
 #include "gui.h"
+#include "Audio/Sound_Helper.h"
+#include "External/ImGui/imgui_extensions.h"
 
 // idk why I didn't just expose it in GUI.h...
 HWND hwnd;
@@ -98,12 +100,22 @@ UserData backupUserData{};
 SerialStatus serialStatus = Status_Idle;
 
 int selectedPort = 0;
+int lastSelectedPort = 0;
 //std::vector<LatencyReading> latencyTests;
 //
 //LatencyStats latencyStats;
 //
 //char note[1000];
 
+std::vector<cAudioDeviceInfo> availableAudioDevices;
+Waveform_SoundHelper* curAudioDevice;
+bool isAudioDevConnected = false;
+const UINT AUDIO_SAMPLE_RATE = 10000;//44100U;
+const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
+const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
+const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
+const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
+uint64_t lastInternalTest = 0;
 
 std::vector<TabInfo> tabsInfo{};
 // --------
@@ -122,6 +134,7 @@ bool fullscreenModeOpenPopup = false;
 bool fullscreenModeClosePopup = false;
 
 bool isGameMode = false;
+bool isInternalMode = false;
 bool wasLMB_Pressed = false;
 bool wasMouseClickSent = false;
 
@@ -131,10 +144,20 @@ bool wasItemAddedGUI = false;
 
 bool shouldRunConfiguration = false;
 
+float leftTabWidth = 400;
+
 // Forward declaration
 void GotSerialChar(char c);
 bool SaveAsMeasurements();
+bool SavePackAsMeasurements();
 void ClearData();
+void DiscoverAudioDevices();
+void StartInternalTest();
+void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime);
+bool CanDoInternalTest();
+bool SetupAudioDevice();
+void AttemptConnect();
+void AttemptDisconnect();
 
 
 /*
@@ -148,7 +171,7 @@ TODO:
 + Better fullscreen implementation (ESCAPE to exit etc.)
 + Max Gui fps slider in settings
 + Load the font in earlier selected size (?)
-- Movable black Square for color detection (?) Check for any additional latency this might involve
++ Movable black Square for color detection (?) Check for any additional latency this might involve
 + Clear / Reset button
 + Game integration. Please don't get me banned again (needs testing) Update: (testing done)
 + Fix overwriting saves
@@ -163,14 +186,110 @@ TODO:
 + Changing tab name sets the status to unsaved
 + Fix too many tabs obscuring tabs beneath them
 + Check if ANY tab is unsaved when closing
-- Pack Save (Save all the tabs into a single file) (?)
++ Pack Save (Save all the tabs into a single file) (?)
 + Configuration Screen
 + Pack fonts into a byte array and load them that way.
 - Add option to display frametime (?)
+- See what can be done about the inefficient Serial Comm code
+- Inform user of all the available keyboard shortcuts
+- Clean-up the audio code
 
 */
 
 bool isSettingOpen = false;
+
+bool AnalyzeData()
+{
+	UINT iter_offset = 00;
+	const UINT BUFFER_MAX_VALUE = (1 << (sizeof(short) * 8)) / 2 - 1;
+	const int BUFFER_THRESHOLD = BUFFER_MAX_VALUE / 5;
+
+	//serialStatus = Status_Idle;
+
+	int baseAvg = 0;
+	const short AvgCount = 10;
+	//const int REMAINDER_COUNTDOWN_VALUE = 10;
+	//int isBufferRemainder = 0; // Value at which last measurement ended gets carried to the current buffer, we have to deal with it.
+
+	for (int i = iter_offset; i < TEST_AUDIO_BUFFER_SIZE; i++)
+	{
+		if (i - iter_offset < AvgCount) {
+			baseAvg += curAudioDevice->audioBuffer[i];
+			continue;
+		}
+		else if (i - iter_offset == AvgCount) {
+			baseAvg /= AvgCount;
+			baseAvg = abs(baseAvg);
+			//if (baseAvg > BUFFER_THRESHOLD)
+			//	isBufferRemainder = REMAINDER_COUNTDOWN_VALUE;
+		}
+
+		//if (isBufferRemainder && abs(curAudioDevice->audioBuffer[i]) < BUFFER_THRESHOLD) {
+		//	isBufferRemainder--;
+
+		//	if (!isBufferRemainder) {
+		//		iter_offset = i - REMAINDER_COUNTDOWN_VALUE;
+		//		baseAvg = 0;
+		//	}
+		//	continue;
+		//}
+
+		short sample = abs(curAudioDevice->audioBuffer[i] - baseAvg);
+
+		if (sample >= BUFFER_THRESHOLD)
+		{
+			float millisElapsed = (1000000 * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
+			std::cout << "latency: " << millisElapsed << ", base val: " << baseAvg << std::endl;
+			if (baseAvg > BUFFER_MAX_VALUE * 0.9f || millisElapsed <= 1)
+				return false;
+			AddMeasurement(millisElapsed, 0, 0);
+			return true;
+		}
+	}
+}
+
+// Callback function called by waveInOpen
+void CALLBACK waveInCallback(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2)
+{
+	switch (uMsg)
+	{
+	case WIM_DATA:
+	{
+		////if(serialStatus != Status_Idle)
+		////	curAudioDevice->SwapToNextBuffer();
+		//serialStatus = Status_Idle;
+		////((Waveform_SoundHelper*)dwInstance)->GetPlayTime();
+		////short sample = curAudioDevice->GetPlayTime().u.sample;
+		////detection_Color = ImColor(0.f, 0.f, 0.f, 1.f);
+		////printf("new data\n");
+		//AnalyzeData();
+
+		
+		static bool swapped_buffers = false;
+		static bool reverted_buffers = false;
+		if (serialStatus != Status_Idle && !swapped_buffers) {
+
+			swapped_buffers = true;
+			reverted_buffers = false;
+			curAudioDevice->SwapToNextBuffer();
+			serialStatus = Status_WaitingForResult;
+			break;
+		}
+		swapped_buffers = false;
+		if (!reverted_buffers) {
+			reverted_buffers = true;
+			AnalyzeData();
+			serialStatus = Status_Idle;
+			curAudioDevice->SwapToNextBuffer();
+		}
+		//printf("new data\n");
+	}
+	break;
+	default:
+		break;
+	}
+}
+
 
 static LARGE_INTEGER StartingTime{ 0 };
 
@@ -302,36 +421,6 @@ int LatencyCompare(const void* a, const void* b)
 	case 2: delta = _a->timeInternal - _b->timeInternal;	break;
 	case 3: delta = _a->timePing - _b->timePing;			break;
 	case 4: delta = 0;										break;
-		//case 0:
-		//	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
-		//		return 1;
-		//	else
-		//		return -1;
-		//	break;
-		//case 1:
-		//	if (_a->timeExternal < _b->timeExternal)
-		//		return -1;
-		//	else if (_a->timeExternal == _b->timeExternal)
-		//		return 0;
-		//	else
-		//		return 1;
-		//	break;
-		//case 2:
-		//	if (_a->timeInternal < _b->timeInternal)
-		//		return -1;
-		//	else if (_a->timeInternal == _b->timeInternal)
-		//		return 0;
-		//	else
-		//		return 1;
-		//	break;
-		//case 3:
-		//	if (_a->timePing < _b->timePing)
-		//		return -1;
-		//	else if (_a->timePing == _b->timePing)
-		//		return 0;
-		//	else
-		//		return 1;
-		//	break;
 	}
 
 	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
@@ -344,136 +433,9 @@ int LatencyCompare(const void* a, const void* b)
 	}
 }
 
-// deprecated, moved to json based files.
-//bool SaveStyleConfig(float colors[styleColorNum][4], float brightnesses[styleColorNum], int fontIndex, float fontSize, size_t size = styleColorNum)
-//{
-//	//This function is deprecated, please use SaveCurrentUserConfig
-//	assert(false);
-//	char buffer[MAX_PATH];
-//	::GetCurrentDirectory(MAX_PATH, buffer);
-//
-//	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
-//
-//	std::ofstream configFile(filePath);
-//	for (size_t i = 0; i < size; i++)
-//	{
-//		auto color = colors[i];
-//		auto packedColor = ImGui::ColorConvertFloat4ToU32(*(ImVec4*)(color));
-//		configFile << i << packedColor << "," << std::to_string(brightnesses[i]) << std::endl;
-//
-//		switch (i)
-//		{
-//		case 0:
-//			std::copy(color, color + 4, accentColorBak);
-//			accentBrightnessBak = brightnesses[i];
-//			break;
-//		case 1:
-//			std::copy(color, color + 4, fontColorBak);
-//			fontBrightnessBak = brightnesses[i];
-//			break;
-//		}
-//	}
-//	selectedFontBak = currentUserData.style.selectedFont;
-//	fontSizeBak = fontSize;
-//	boldFontBak = boldFont;
-//	configFile << "F" << fontIndex << std::to_string(fontSize) << std::endl;
-//	configFile.close();
-//
-//	std::cout << "File Closed\n";
-//
-//	return true;
-//}
-
-// deprecated, moved to json based files.
-//bool ReadStyleConfig(float(&colors)[styleColorNum][4], float(&brightnesses)[styleColorNum], int& fontIndex, float& fontSize)
-//{
-//	//This function is deprecated, please use SaveCurrentUserConfig
-//	assert(false);
-//	char buffer[MAX_PATH];
-//	::GetCurrentDirectory(MAX_PATH, buffer);
-//
-//	auto filePath = std::string(buffer).find("Debug") != std::string::npos ? "Style.cfg" : "Debug/Style.cfg";
-//
-//	std::ifstream configFile(filePath);
-//
-//	if (!configFile.good())
-//		return false;
-//
-//	std::string line, colorPart, brightnessPart;
-//	while (std::getline(configFile, line))
-//	{
-//		if (line[0] == 'F')
-//		{
-//			fontIndex = line[1] - '0';
-//			fontSize = std::stof(line.substr(2, line.find("\n")));
-//			continue;
-//		}
-//
-//		// First char of the line is the index (just to be sure)
-//		int index = (int)(line[0] - '0');
-//
-//		// Color is stored in front of the comma and the brightness after it
-//		int delimiterPos = line.find(",");
-//		colorPart = line.substr(1, delimiterPos - 1);
-//		brightnessPart = line.substr(delimiterPos + 1, line.find("\n"));
-//
-//		// Extract the color from the string
-//		auto subInt = stoll(colorPart);
-//		auto color = ImGui::ColorConvertU32ToFloat4(subInt);
-//		auto offset = (index * (colorSize));
-//
-//		// Same with brightness
-//		float brightness = std::stof(brightnessPart);
-//
-//		// Set both of the values
-//		memcpy(&(colors[index][0]), &color, colorSize);
-//		brightnesses[index] = brightness;
-//	}
-//
-//	// Remember to close the handle
-//	configFile.close();
-//
-//	std::cout << "File Closed\n";
-//
-//	return true;
-//}
-
 // Does the calcualtions and copying for you
 void SaveCurrentUserConfig()
 {
-	//UserData* userData = new UserData();
-
-	//StyleData* style = &userData->style;
-
-	//std::copy(accentColor, accentColor + 4, style->mainColor);
-	//std::copy(fontColor, fontColor + 4, style->fontColor);
-	//style->mainColorBrightness = accentBrightness;
-	//style->fontColorBrightness = fontBrightness;
-	//style->fontSize = fontSize;
-	//style->selectedFont = selectedFont;
-
-	//std::copy(accentColor, accentColor + 4, accentColorBak);
-	//accentBrightnessBak = accentBrightness;
-
-	//std::copy(fontColor, fontColor + 4, fontColorBak);
-	//fontBrightnessBak = fontBrightness;
-
-	//selectedFontBak = selectedFont;
-	//fontSizeBak = fontSize;
-	//boldFontBak = boldFont;
-
-	//PerformanceData* performance = &userData->performance;
-
-	//performance->guiLockedFps = guiLockedFps;
-	//performance->lockGuiFps = lockGuiFps;
-
-	//performance->showPlots = showPlots;
-
-	//guiLockedFpsBak = guiLockedFps;
-	//lockGuiFpsBak = lockGuiFps;
-
-	//showPlotsBak = showPlots;
-
 	if (backupUserData.misc.localUserData != currentUserData.misc.localUserData)
 		HelperJson::UserConfigLocationChanged(currentUserData.misc.localUserData);
 
@@ -488,19 +450,6 @@ bool LoadCurrentUserConfig()
 	//UserData userData;
 	if (!HelperJson::GetUserData(currentUserData))
 		return false;
-
-	//auto style = userData.style;
-	//std::copy(style.mainColor, style.mainColor + 4, accentColor);
-	//std::copy(style.fontColor, style.fontColor + 4, fontColor);
-	//accentBrightness = style.mainColorBrightness;
-	//fontBrightness = style.fontColorBrightness;
-	//fontSize = style.fontSize;
-	//selectedFont = style.selectedFont;
-
-	//lockGuiFps = userData.performance.lockGuiFps;
-	//guiLockedFps = userData.performance.guiLockedFps;
-
-	//showPlots = userData.performance.showPlots;
 
 	return true;
 }
@@ -632,104 +581,104 @@ bool HasConfigChanged()
 		return false;
 }
 
-void RecalculateStats(bool recalculate_Average = false)
+void RecalculateStats(bool recalculate_Average = false, int tabIdx = selectedTab)
 {
-	size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
+	size_t size = tabsInfo[tabIdx].latencyData.measurements.size();
 	if (size <= 0)
 		return;
 	if (recalculate_Average)
 	{
-		tabsInfo[selectedTab].latencyStats.externalLatency.highest = 0;
-		tabsInfo[selectedTab].latencyStats.internalLatency.highest = 0;
-		tabsInfo[selectedTab].latencyStats.inputLatency.highest = 0;
+		tabsInfo[tabIdx].latencyStats.externalLatency.highest = 0;
+		tabsInfo[tabIdx].latencyStats.internalLatency.highest = 0;
+		tabsInfo[tabIdx].latencyStats.inputLatency.highest = 0;
 
 		unsigned int extSum = 0, intSum = 0, inpSum = 0;
 
 		for (size_t i = 0; i < size; i++)
 		{
-			auto& test = tabsInfo[selectedTab].latencyData.measurements[i];
+			auto& test = tabsInfo[tabIdx].latencyData.measurements[i];
 
 			if (i == 0)
 			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
-				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
+				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
 			}
 
 			extSum += test.timeExternal;
 			intSum += test.timeInternal;
 			inpSum += test.timePing;
 
-			if (test.timeExternal > tabsInfo[selectedTab].latencyStats.externalLatency.highest)
+			if (test.timeExternal > tabsInfo[tabIdx].latencyStats.externalLatency.highest)
 			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
+				tabsInfo[tabIdx].latencyStats.externalLatency.highest = test.timeExternal;
 			}
-			else if (test.timeExternal < tabsInfo[selectedTab].latencyStats.externalLatency.lowest)
+			else if (test.timeExternal < tabsInfo[tabIdx].latencyStats.externalLatency.lowest)
 			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-			}
-
-			if (test.timeInternal > tabsInfo[selectedTab].latencyStats.internalLatency.highest)
-			{
-				tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < tabsInfo[selectedTab].latencyStats.internalLatency.lowest)
-			{
-				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
 			}
 
-			if (test.timePing > tabsInfo[selectedTab].latencyStats.inputLatency.highest)
+			if (test.timeInternal > tabsInfo[tabIdx].latencyStats.internalLatency.highest)
 			{
-				tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
+				tabsInfo[tabIdx].latencyStats.internalLatency.highest = test.timeInternal;
 			}
-			else if (test.timePing < tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
+			else if (test.timeInternal < tabsInfo[tabIdx].latencyStats.internalLatency.lowest)
 			{
-				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
+			}
+
+			if (test.timePing > tabsInfo[tabIdx].latencyStats.inputLatency.highest)
+			{
+				tabsInfo[tabIdx].latencyStats.inputLatency.highest = test.timePing;
+			}
+			else if (test.timePing < tabsInfo[tabIdx].latencyStats.inputLatency.lowest)
+			{
+				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
 			}
 		}
 
-		tabsInfo[selectedTab].latencyStats.externalLatency.average = static_cast<float>(extSum) / size;
-		tabsInfo[selectedTab].latencyStats.internalLatency.average = static_cast<float>(intSum) / size;
-		tabsInfo[selectedTab].latencyStats.inputLatency.average = static_cast<float>(inpSum) / size;
+		tabsInfo[tabIdx].latencyStats.externalLatency.average = static_cast<float>(extSum) / size;
+		tabsInfo[tabIdx].latencyStats.internalLatency.average = static_cast<float>(intSum) / size;
+		tabsInfo[tabIdx].latencyStats.inputLatency.average = static_cast<float>(inpSum) / size;
 	}
 	else
 	{
 		for (size_t i = 0; i < size; i++)
 		{
-			auto& test = tabsInfo[selectedTab].latencyData.measurements[i];
+			auto& test = tabsInfo[tabIdx].latencyData.measurements[i];
 
 			if (i == 0)
 			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
-				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
+				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
 			}
 
-			if (test.timeExternal > tabsInfo[selectedTab].latencyStats.externalLatency.highest)
+			if (test.timeExternal > tabsInfo[tabIdx].latencyStats.externalLatency.highest)
 			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
+				tabsInfo[tabIdx].latencyStats.externalLatency.highest = test.timeExternal;
 			}
-			else if (test.timeExternal < tabsInfo[selectedTab].latencyStats.externalLatency.lowest)
+			else if (test.timeExternal < tabsInfo[tabIdx].latencyStats.externalLatency.lowest)
 			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-			}
-
-			if (test.timeInternal > tabsInfo[selectedTab].latencyStats.internalLatency.highest)
-			{
-				tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < tabsInfo[selectedTab].latencyStats.internalLatency.lowest)
-			{
-				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
+				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
 			}
 
-			if (test.timePing > tabsInfo[selectedTab].latencyStats.inputLatency.highest)
+			if (test.timeInternal > tabsInfo[tabIdx].latencyStats.internalLatency.highest)
 			{
-				tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
+				tabsInfo[tabIdx].latencyStats.internalLatency.highest = test.timeInternal;
 			}
-			else if (test.timePing < tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
+			else if (test.timeInternal < tabsInfo[tabIdx].latencyStats.internalLatency.lowest)
 			{
-				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
+				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
+			}
+
+			if (test.timePing > tabsInfo[tabIdx].latencyStats.inputLatency.highest)
+			{
+				tabsInfo[tabIdx].latencyStats.inputLatency.highest = test.timePing;
+			}
+			else if (test.timePing < tabsInfo[tabIdx].latencyStats.inputLatency.lowest)
+			{
+				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
 			}
 		}
 	}
@@ -775,60 +724,6 @@ void RemoveMeasurement(size_t index)
 
 			if (i > index)
 				test.index -= 1;
-
-			//if (test.timeExternal > result.timeExternal)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
-			//}
-			//else if (test.timeExternal < result.timeExternal)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-			//}
-
-			//if (test.timeInternal > result.timeInternal)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
-			//}
-			//else if (test.timeInternal < result.timeInternal)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
-			//}
-
-			//if (test.timePing > result.timePing)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
-			//}
-			//else if (test.timeExternal < result.timeExternal)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
-			//}
-
-			//if (test.timeExternal > tabsInfo[selectedTab].latencyStats.externalLatency.highest)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.externalLatency.highest = test.timeExternal;
-			//}
-			//else if (test.timeExternal < tabsInfo[selectedTab].latencyStats.externalLatency.lowest)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-			//}
-
-			//if (test.timeInternal > tabsInfo[selectedTab].latencyStats.internalLatency.highest)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.internalLatency.highest = test.timeInternal;
-			//}
-			//else if (test.timeInternal < tabsInfo[selectedTab].latencyStats.internalLatency.lowest)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
-			//}
-
-			//if (test.timePing > tabsInfo[selectedTab].latencyStats.inputLatency.highest)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.inputLatency.highest = test.timePing;
-			//}
-			//else if (test.timePing < tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
-			//}
 		}
 
 		tabsInfo[selectedTab].latencyData.measurements.erase(tabsInfo[selectedTab].latencyData.measurements.begin() + index);
@@ -849,12 +744,6 @@ bool SaveMeasurements()
 
 	if (std::strlen(tabsInfo[selectedTab].savePath) == 0)
 		return SaveAsMeasurements();
-
-	//LatencyData latencyData{};
-	//ZeroMemory(&latencyData, sizeof(LatencyData));
-	//
-	//latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
-	//strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
 
 	HelperJson::SaveLatencyTests(tabsInfo[selectedTab], tabsInfo[selectedTab].savePath);
 	tabsInfo[selectedTab].isSaved = true;
@@ -877,6 +766,7 @@ bool SaveAsMeasurements()
 	}
 
 	char filename[MAX_PATH]{ "name" };
+	memcpy(filename, tabsInfo[selectedTab].name, TAB_NAME_MAX_SIZE);
 	const char szExt[] = "Json\0*.json\0\0";
 
 	OPENFILENAME ofn;
@@ -894,14 +784,74 @@ bool SaveAsMeasurements()
 		strncpy_s(tabsInfo[selectedTab].savePath, filename, MAX_PATH);
 
 		SaveMeasurements();
+	}
+	//else
+	//	tabsInfo[selectedTab].isSaved = false;
 
-		//LatencyData latencyData{};
-		//ZeroMemory(&latencyData, sizeof(LatencyData));
-		//
-		//latencyData.measurements = tabsInfo[selectedTab].latencyData.measurements;
-		//strcpy_s(latencyData.note, tabsInfo[selectedTab].latencyData.note);
-		//
-		//HelperJson::SaveLatencyTests(latencyData, filename);
+	if (wasFullscreen)
+	{
+		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
+		isFullscreen = true;
+	}
+
+	return tabsInfo[selectedTab].isSaved;
+}
+
+bool SavePackMeasurements()
+{
+	char* packSavePath = nullptr;
+	for (auto& tab : tabsInfo) {
+		if (packSavePath && strcmp(packSavePath, tab.savePathPack) != 0)
+		{
+			packSavePath = nullptr;
+			break;
+		}
+		if(strlen(tab.savePathPack) != 0)
+			packSavePath = tab.savePathPack;
+	}
+
+	if (packSavePath == nullptr)
+		return SavePackAsMeasurements();
+
+	HelperJson::SaveLatencyTestsPack(tabsInfo, packSavePath);
+	for(auto& tab : tabsInfo)
+		tab.isSaved = true;
+
+	return true;
+}
+
+bool SavePackAsMeasurements()
+{
+	bool wasFullscreen = isFullscreen;
+	if (isFullscreen)
+	{
+		GUI::g_pSwapChain->SetFullscreenState(false, nullptr);
+		isFullscreen = false;
+		fullscreenModeOpenPopup = false;
+		fullscreenModeClosePopup = false;
+	}
+
+	char filename[MAX_PATH]{ "PackName" };
+	const char szExt[] = "Json\0*.json\0\0";
+
+	OPENFILENAME ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
+
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hwnd;
+	ofn.lpstrFile = filename;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
+	ofn.Flags = OFN_DONTADDTORECENT | OFN_OVERWRITEPROMPT;
+	ofn.lpstrTitle = "Save Pack As";
+
+	if (GetSaveFileName(&ofn))
+	{
+		for (auto& tab : tabsInfo) {
+			strncpy_s(tab.savePathPack, filename, MAX_PATH);
+		}
+
+		SavePackMeasurements();
 	}
 	//else
 	//	tabsInfo[selectedTab].isSaved = false;
@@ -926,7 +876,7 @@ void OpenMeasurements()
 		fullscreenModeClosePopup = false;
 	}
 
-	char filename[MAX_PATH];
+	char filename[MAX_PATH*10];
 	const char szExt[] = "json\0";
 
 	ZeroMemory(filename, sizeof(filename));
@@ -937,19 +887,56 @@ void OpenMeasurements()
 	ofn.lStructSize = sizeof(OPENFILENAME);
 	ofn.hwndOwner = hwnd;
 	ofn.lpstrFile = filename;
-	ofn.nMaxFile = MAX_PATH;
+	ofn.nMaxFile = sizeof(filename);
 	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
-	ofn.Flags = OFN_DONTADDTORECENT;
+	ofn.Flags = OFN_DONTADDTORECENT | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
 
 	if (GetOpenFileName(&ofn))
 	{
-		ClearData();
-		HelperJson::GetLatencyTests(tabsInfo[selectedTab], filename);
+		//ClearData();
+		size_t added_tabs = 0;
+		bool isMultiSelect = !filename[ofn.nFileOffset-1];
+		if (isMultiSelect) {
+			std::string baseDir = filename;
+			char* pFileName = filename;
+			pFileName += baseDir.length() + 1;
+			while (*pFileName) {
+				size_t new_tabs = HelperJson::GetLatencyTests(tabsInfo, (baseDir + "\\" + pFileName).c_str());
+				for (size_t i = tabsInfo.size() - new_tabs; i < tabsInfo.size(); i++)
+				{
+					if (*tabsInfo[i].name == 0)
+					{
+						std::string pureFileName = pFileName;
+						pureFileName = pureFileName.substr(0, pureFileName.find_last_of(".json") - 4);
+						strcpy_s<TAB_NAME_MAX_SIZE>(tabsInfo[i].name, pureFileName.c_str());
+					}
+				}
+				added_tabs += new_tabs;
+				pFileName += strlen(pFileName) + 1;
+			}
+		}
+		else {
+			added_tabs = HelperJson::GetLatencyTests(tabsInfo, filename);
+			strcpy_s(tabsInfo[selectedTab].savePath, filename);
+		}
+		selectedTab += added_tabs;
 
-		strcpy_s(tabsInfo[selectedTab].savePath, filename);
+		for (size_t i = tabsInfo.size() - added_tabs; i < tabsInfo.size(); i++)
+		{
+			if (!tabsInfo[i].latencyData.measurements.empty())
+				RecalculateStats(true, i);
 
-		if (!tabsInfo[selectedTab].latencyData.measurements.empty())
-			RecalculateStats(true);
+			if (*tabsInfo[i].name == 0 && !isMultiSelect)
+			{
+				std::string pureFileName = filename;
+				size_t lastSlash = pureFileName.find_last_of("\\");
+				pureFileName = pureFileName.substr(lastSlash + 1, pureFileName.find_last_of(".json") - lastSlash - 5);
+				strcpy_s<TAB_NAME_MAX_SIZE>(tabsInfo[i].name, pureFileName.c_str());
+			}
+		}
+
+		//if (!tabsInfo[selectedTab].latencyData.measurements.empty())
+		//	RecalculateStats(true);
 	}
 
 	// Add this to preferences or smth
@@ -993,34 +980,14 @@ int OnGui()
 		{
 			if (ImGui::MenuItem("Open", "Ctrl+O")) { OpenMeasurements(); }
 			if (ImGui::MenuItem("Save", "Ctrl+S")) { SaveMeasurements(); }
-			if (ImGui::MenuItem("Save as", "")) { SaveAsMeasurements(); }
+			if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) { SaveAsMeasurements(); }
+			if (ImGui::MenuItem("Save Pack", "Alt+S")) { SavePackMeasurements(); }
+			if (ImGui::MenuItem("Save Pack", "Alt+Shift+S")) { SavePackAsMeasurements(); }
 			if (ImGui::MenuItem("Settings", "")) { isSettingOpen = !isSettingOpen; }
 			if (ImGui::MenuItem("Close", "")) { return 1; }
 			ImGui::EndMenu();
 		}
 
-		//if (saveMeasurementsPopup)
-		//	ImGui::OpenPopup("Save measurements");
-
-		//if (ImGui::BeginPopupModal("Save measurements", &saveMeasurementsPopup, ImGuiWindowFlags_NoResize))
-		//{
-		//	auto modalAvail = ImGui::GetContentRegionAvail();
-		//	static char inputName[MEASUREMENTS_FILE_NAME_LENGTH]{"Name"};
-		//	for (size_t i = 0; i < MEASUREMENTS_FILE_NAME_LENGTH; i++)
-		//	{
-		//		char c = inputName[i];
-		//		if (std::find(invalidPathCharacters, invalidPathCharacters + 9, c))
-		//			inputName[i] = 0;
-		//	}
-		//	ImGui::InputText("Name", inputName, MEASUREMENTS_FILE_NAME_LENGTH, ImGuiInputTextFlags_CallbackCharFilter, FilterValidPath);
-		//	if (ImGui::Button("Save", { modalAvail.x , ImGui::GetFrameHeightWithSpacing() }))
-		//	{
-		//		SaveMeasurements(inputName);
-		//		ImGui::CloseCurrentPopup();
-		//		saveMeasurementsPopup = false;
-		//	}
-		//	ImGui::EndPopup();
-		//}
 		// Draw FPS
 		{
 			auto menuBarAvail = ImGui::GetContentRegionAvail();
@@ -1035,7 +1002,7 @@ int OnGui()
 			ImGui::Text("%.1f GUI", ImGui::GetIO().Framerate);
 			ImGui::SameLine();
 			// Right click total frames to reset it
-			ImGui::Text("%.1f CPU", 1000000.f / averageFrametime);
+			ImGui::Text(" %.1f CPU", 1000000.f / averageFrametime);
 			static uint64_t totalFramerateStartTime{ micros() };
 			// The framerate is sometimes just too high to be properly displayed by the moving average and it's "small" buffer. So this should show average framerate over the entire program lifespan
 			TOOLTIP("Avg. framerate: %.1f", ((float)totalFrames / (micros() - totalFramerateStartTime)) * 1000000.f);
@@ -1053,6 +1020,12 @@ int OnGui()
 	const auto windowAvail = ImGui::GetContentRegionAvail();
 	ImGuiIO& io = ImGui::GetIO();
 
+	if (serialStatus != Status_Idle && micros() > (lastInternalTest + SERIAL_NO_RESPONSE_DELAY))
+	{
+		serialStatus = Status_Idle;
+	}
+
+
 	// Handle Shortcuts
 	ImGuiKey pressedKeys[ImGuiKey_COUNT]{ 0 };
 	size_t addedKeys = 0;
@@ -1069,7 +1042,7 @@ int OnGui()
 
 		if (ImGui::IsLegacyKey(key))
 			continue;
-
+		
 		if (isPressed) {
 			auto name = ImGui::GetKeyName(key);
 			pressedKeys[addedKeys++] = key;
@@ -1083,23 +1056,25 @@ int OnGui()
 		//const char* name = ImGui::GetKeyName(pressedKeys[0]);
 		if (io.KeyCtrl)
 		{
+			// Moved to the Main function
 			//io.ClearInputKeys();
-			if (pressedKeys[0] == ImGuiKey_S)
-			{
-				SaveMeasurements();
-			}
-			else if (pressedKeys[0] == ImGuiKey_O)
-			{
-				OpenMeasurements();
-			}
-			else if (pressedKeys[0] == ImGuiKey_N)
-			{
-				auto newTab = TabInfo();
-				strcat_s<32>(newTab.name, std::to_string(tabsInfo.size()).c_str());
-				tabsInfo.push_back(newTab);
-			}
+			//if (pressedKeys[0] == ImGuiKey_S)
+			//{
+			//	printf("Save intent\n");
+			//	SaveMeasurements();
+			//}
+			//if (pressedKeys[0] == ImGuiKey_O)
+			//{
+			//	OpenMeasurements();
+			//}
+			//else if (pressedKeys[0] == ImGuiKey_N)
+			//{
+			//	auto newTab = TabInfo();
+			//	strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+			//	tabsInfo.push_back(newTab);
+			//}
 			// Doesn't work yet!
-			else if (pressedKeys[0] == ImGuiKey_W)
+			if (pressedKeys[0] == ImGuiKey_W)
 			{
 				char tabClosePopupName[48];
 				snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", selectedTab);
@@ -1227,6 +1202,7 @@ int OnGui()
 	//	}
 
 	//}
+
 
 	if (isSettingOpen)
 	{
@@ -1503,6 +1479,7 @@ int OnGui()
 		ImGui::End();
 	}
 
+
 	// TABS
 
 	int deletedTabIndex = -1;
@@ -1536,7 +1513,6 @@ int OnGui()
 
 			if (ImGui::IsItemHovered())
 			{
-
 				if (ImGui::IsMouseDown(0))
 				{
 					selectedTab = tabN;
@@ -1622,7 +1598,7 @@ int OnGui()
 			if (ImGui::BeginPopup(popupTextEdit, ImGuiWindowFlags_NoMove))
 			{
 				ImGui::SetKeyboardFocusHere(0);
-				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32, ImGuiInputTextFlags_AutoSelectAll))
+				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, TAB_NAME_MAX_SIZE, ImGuiInputTextFlags_AutoSelectAll))
 				{
 					char defaultTabName[8]{ 0 };
 					snprintf(defaultTabName, 8, "Tab %i", tabN);
@@ -1642,8 +1618,8 @@ int OnGui()
 			if (ImGui::BeginPopup(popupName, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings))
 			{
 				// Check if this name already exists
-				ImGui::SetKeyboardFocusHere(0);
-				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, 32, ImGuiInputTextFlags_AutoSelectAll))
+				//ImGui::SetKeyboardFocusHere(0);
+				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, TAB_NAME_MAX_SIZE, ImGuiInputTextFlags_AutoSelectAll))
 				{
 					char defaultTabName[8]{ 0 };
 					snprintf(defaultTabName, 8, "Tab %i", tabN);
@@ -1654,7 +1630,7 @@ int OnGui()
 					ImGui::CloseCurrentPopup();
 
 				//ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 4);
-				if (tabsInfo.size() > 1)
+				if (tabsInfo.size() > 1) {
 					if (ImGui::Button("Close Tab", { -1, 0 }))
 					{
 						if (!tabsInfo[tabN].isSaved)
@@ -1669,6 +1645,7 @@ int OnGui()
 							ImGui::CloseCurrentPopup();
 						}
 					}
+				}
 
 				ImGui::EndPopup();
 			}
@@ -1718,9 +1695,9 @@ int OnGui()
 		if (ImGui::TabItemButton(" + ", ImGuiTabItemFlags_Trailing))
 		{
 			auto newTab = TabInfo();
-			strcat_s<32>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
 			tabsInfo.push_back(newTab);
-			//selectedTab = tabsInfo.size() - 1;
+			selectedTab = tabsInfo.size() - 1;
 
 			//ImGui::EndTabItem(); 
 		}
@@ -1741,7 +1718,8 @@ int OnGui()
 	if (deletedTabIndex >= 0)
 	{
 		tabsInfo.erase(tabsInfo.begin() + deletedTabIndex);
-		selectedTab = max(selectedTab - 1, 0);
+		if(selectedTab >= deletedTabIndex)
+			selectedTab = max(selectedTab - 1, 0);
 		//char tabNameLabel[48];
 		//snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[selectedTab].name, selectedTab);
 
@@ -1750,7 +1728,7 @@ int OnGui()
 
 	const auto avail = ImGui::GetContentRegionAvail();
 
-	if (ImGui::BeginChild("LeftChild", { avail.x / 2 - style.WindowPadding.x, avail.y - detectionRectSize.y - 5 }, true))
+	if (ImGui::BeginChild("LeftChild", { leftTabWidth, avail.y - detectionRectSize.y - 5 }, true))
 	{
 
 #ifdef _DEBUG 
@@ -1781,48 +1759,76 @@ int OnGui()
 
 		ImGui::BeginGroup();
 
+		bool isSelectedConnected = isInternalMode ? isAudioDevConnected : Serial::isConnected;
+
 		ImGui::PushItemWidth(80);
-		if (ImGui::BeginCombo("Port", Serial::availablePorts.size() > 0 ? Serial::availablePorts[selectedPort].c_str() : "0 Found"))
+		ImGui::BeginDisabled(isSelectedConnected);
+		if (isInternalMode)
 		{
-			for (size_t i = 0; i < Serial::availablePorts.size(); i++)
+			if (ImGui::BeginCombo("Device", availableAudioDevices.size() > 0 ? availableAudioDevices[selectedPort].friendlyName : "0 Found"))
 			{
-				bool isSelected = (selectedPort == i);
-				if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
+				for (size_t i = 0; i < availableAudioDevices.size(); i++)
 				{
-					if (selectedPort != i)
-						Serial::Close();
-					selectedPort = i;
+					bool isSelected = (selectedPort == i);
+					if (ImGui::Selectable(availableAudioDevices[i].friendlyName, isSelected, 0, { 0,0 }, style.FrameRounding))
+					{
+						if (selectedPort != i)
+							Serial::Close();
+						selectedPort = i;
+					}
 				}
+				ImGui::EndCombo();
 			}
-			ImGui::EndCombo();
+		}
+		else
+		{
+			if (ImGui::BeginCombo("Port", Serial::availablePorts.size() > 0 ? Serial::availablePorts[selectedPort].c_str() : "0 Found"))
+			{
+				for (size_t i = 0; i < Serial::availablePorts.size(); i++)
+				{
+					bool isSelected = (selectedPort == i);
+					if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
+					{
+						if (selectedPort != i)
+							Serial::Close();
+						selectedPort = i;
+					}
+				}
+				ImGui::EndCombo();
+			}
 		}
 		ImGui::PopItemWidth();
+		ImGui::EndDisabled();
 
 		ImGui::SameLine();
 
-		if (ImGui::Button("Refresh"))
+		if (ImGui::Button("Refresh") && serialStatus == Status_Idle)
 		{
-			Serial::FindAvailableSerialPorts();
+			if (isInternalMode)
+				DiscoverAudioDevices();
+			else
+				Serial::FindAvailableSerialPorts();
 		}
 
 		ImGui::SameLine();
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
-		ImGui::BeginDisabled(Serial::isConnected);
-		if (ImGui::ButtonEx("Connect"))
+		if (isSelectedConnected)
 		{
-			Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
+			if (ImGui::Button("Disconnect"))
+			{
+				AttemptDisconnect();
+			}
 		}
-		ImGui::EndDisabled();
-
-		ImGui::SameLine();
-
-		ImGui::BeginDisabled(!Serial::isConnected);
-		if (ImGui::Button("Disconnect"))
+		else
 		{
-			Serial::Close();
+			if (ImGui::Button("Connect") && !Serial::availablePorts.empty())
+			{
+				AttemptConnect();
+			}
 		}
-		ImGui::EndDisabled();
+
+		//ImGui::SameLine();
 
 		ImGui::EndGroup();
 
@@ -1844,9 +1850,21 @@ int OnGui()
 		ImGui::BeginGroup();
 
 		ImGui::Checkbox("Game Mode", &isGameMode);
-		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.")
+		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.");
 
-			ImGui::SameLine();
+		ImGui::SameLine();
+
+		ImGui::BeginDisabled(isSelectedConnected);
+		if (ImGui::Checkbox("Internal Mode", &isInternalMode))
+		{
+			int bkpSelected = lastSelectedPort;
+			lastSelectedPort = selectedPort;
+			selectedPort = bkpSelected;
+		}
+		TOOLTIP("False - Use Arduino\nTrue - Use a light sensor connected to a 3.5mm audio port (Use the \"Run Test\" button).");
+		ImGui::EndDisabled();
+
+		ImGui::SameLine();
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
 		if (ImGui::Button("Clear"))
@@ -1874,6 +1892,29 @@ int OnGui()
 			ImGui::EndPopup();
 		}
 
+		if (isInternalMode) {
+			ImGui::SameLine();
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
+			ImGui::SameLine();
+
+			ImGui::BeginDisabled(!CanDoInternalTest());
+			auto cursorPos = ImGui::GetCurrentWindow()->DC.CursorPos;
+			if (ImGui::Button("Run Test"))
+			{
+				StartInternalTest();
+			}
+			ImGui::EndDisabled();
+			auto itemSize = ImGui::GetItemRectSize();
+			float frac = ImClamp<float>(((micros() - lastInternalTest) / (float)(1000000 * (uint64_t)WARMUP_AUDIO_BUFFER_SIZE / AUDIO_SAMPLE_RATE)), 0, 1);
+			//ImGui::ProgressBar(frac);
+			cursorPos.y += ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset + style.FramePadding.y * 2 + ImGui::GetTextLineHeight() + 2;
+			cursorPos.x += 5;
+			itemSize.x -= 10;
+			itemSize.x *= frac;
+			//itemSize.x = itemSize.x < 0 ? 0 : itemSize.x;
+			ImGui::GetWindowDrawList()->AddLine(cursorPos, { cursorPos.x + itemSize.x, cursorPos.y }, ImGui::GetColorU32(ImGuiCol_SeparatorActive), 2);
+			TOOLTIP("It's advised to use Shift+R instead.");
+		}
 		ImGui::EndGroup();
 
 		restItemsSize = ImGui::GetItemRectSize();
@@ -1884,6 +1925,7 @@ int OnGui()
 
 		if (ImGui::BeginChild("MeasurementStats", { 0, ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y * 2 }, true))
 		{
+#pragma region OldGraphs
 			/*
 			//ImGui::BeginGroup();
 			//ImGui::Text("");
@@ -1919,7 +1961,7 @@ int OnGui()
 			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000);
 			//ImGui::EndGroup();
 			*/
-
+#pragma endregion
 			if (ImGui::BeginTable("Latency Stats Table", 4, ImGuiTableFlags_BordersInner | ImGuiTableFlags_NoPadOuterX))
 			{
 				ImGui::TableNextRow();
@@ -2019,16 +2061,21 @@ int OnGui()
 	ImGui::EndChild();
 
 	ImGui::SameLine();
+	
+	static float leftTabStart = 0;
+	ImGui::ResizeSeparator(leftTabWidth, leftTabStart, ImGuiSeparatorFlags_Vertical, {300, 300}, { 6, avail.y - detectionRectSize.y - 5 });
+
+	ImGui::SameLine();
 
 	ImGui::BeginGroup();
 
 	auto tableAvail = ImGui::GetContentRegionAvail();
 
-	if (ImGui::BeginTable("measurementsTable", 5, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { avail.x / 2, 200 }))
+	if (ImGui::BeginTable("measurementsTable", 5, ImGuiTableFlags_Reorderable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Sortable | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, { tableAvail.x, 200 }))
 	{
 		ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed, 0.0f, 0);
-		ImGui::TableSetupColumn("External Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
-		ImGui::TableSetupColumn("Internal Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
+		ImGui::TableSetupColumn("Internal Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 1);
+		ImGui::TableSetupColumn("External Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 2);
 		ImGui::TableSetupColumn("Input Latency (ms)", ImGuiTableColumnFlags_WidthStretch, 0.0f, 3);
 		ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 0.0f, 4);
 		ImGui::TableHeadersRow();
@@ -2061,13 +2108,12 @@ int OnGui()
 				ImGui::Text("%i", reading.index);
 				ImGui::TableNextColumn();
 
-				ImGui::Text("%i", reading.timeExternal);
-				ImGui::TableNextColumn();
-
 				ImGui::Text("%i", reading.timeInternal / 1000);
 				// \xC2\xB5 is the microseconds character (looks like u (not you, just "u"))
 				TOOLTIP("%i\xC2\xB5s", reading.timeInternal);
+				ImGui::TableNextColumn();
 
+				ImGui::Text("%i", reading.timeExternal);
 				ImGui::TableNextColumn();
 
 				ImGui::Text("%i", reading.timePing / 1000);
@@ -2102,10 +2148,14 @@ int OnGui()
 
 	ImGui::EndGroup();
 
+	static float detectionRectStart = 0;
+	ImGui::ResizeSeparator(detectionRectSize.y, detectionRectStart, ImGuiSeparatorFlags_Horizontal, {100, 400}, { avail.x, 6 });
+
 	// Color change detection rectangle.
 	ImVec2 rectSize{ 0, detectionRectSize.y };
 	rectSize.x = detectionRectSize.x == 0 ? windowAvail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
 	ImVec2 pos = { 0, windowAvail.y - rectSize.y + style.WindowPadding.y * 2 + style.FramePadding.y * 2 + 10 };
+	pos.y += 12;
 	ImRect bb{ pos, pos + rectSize };
 	ImGui::RenderFrame(
 		bb.Min,
@@ -2114,6 +2164,22 @@ int OnGui()
 		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1.f)),
 		false
 	);
+	//if (ImGui::IsItemFocused())
+	//	ImGui::SetFocusID(0, ImGui::GetCurrentWindow());
+
+	if (serialStatus == Status_Idle && currentUserData.performance.showPlots) {
+		ImGui::SetCursorPos(pos);
+		//rectSize.y -= style.WindowPadding.y/2;
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+		SetPlotLinesColor({ 1,1,1,0.5 });
+		//else
+		//	SetPlotLinesColor({ 0,0,0,0.5 });
+		if (curAudioDevice)
+			ImGui::PlotLines("##audioBufferPlot2", [](void* data, int idx) {return (float)curAudioDevice->audioBuffer[idx]; }, nullptr, TEST_AUDIO_BUFFER_SIZE, 0, 0, (long long)SHRT_MAX / -1, SHRT_MAX / 1, rectSize);
+		ImGui::PopStyleColor(3);
+		ImGui::PopStyleVar();
+	}
 
 
 	if (ImGui::BeginPopupModal("Set Up", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
@@ -2208,6 +2274,37 @@ int OnGui()
 
 std::chrono::steady_clock::time_point lastTimeGotChar;
 
+void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime)
+{
+	LatencyReading reading{ externalTime, internalTime, inputTime };
+	size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
+
+	// Update the stats
+	tabsInfo[selectedTab].latencyStats.internalLatency.average = (tabsInfo[selectedTab].latencyStats.internalLatency.average * size) / (size + 1.f) + (internalTime / (size + 1.f));
+	tabsInfo[selectedTab].latencyStats.externalLatency.average = (tabsInfo[selectedTab].latencyStats.externalLatency.average * size) / (size + 1.f) + (externalTime / (size + 1.f));
+	tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (inputTime / (size + 1.f));
+
+	tabsInfo[selectedTab].latencyStats.internalLatency.highest = internalTime > tabsInfo[selectedTab].latencyStats.internalLatency.highest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.highest;
+	tabsInfo[selectedTab].latencyStats.externalLatency.highest = externalTime > tabsInfo[selectedTab].latencyStats.externalLatency.highest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.highest;
+	tabsInfo[selectedTab].latencyStats.inputLatency.highest = inputTime > tabsInfo[selectedTab].latencyStats.inputLatency.highest ? inputTime : tabsInfo[selectedTab].latencyStats.inputLatency.highest;
+
+	tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime < tabsInfo[selectedTab].latencyStats.internalLatency.lowest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.lowest;
+	tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime < tabsInfo[selectedTab].latencyStats.externalLatency.lowest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.lowest;
+	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = inputTime < tabsInfo[selectedTab].latencyStats.inputLatency.lowest ? inputTime : tabsInfo[selectedTab].latencyStats.inputLatency.lowest;
+
+	// If there are no measurements done yet set the minimum value to the current one
+	if (size == 0)
+	{
+		tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime;
+		tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime;
+		tabsInfo[selectedTab].latencyStats.inputLatency.lowest = inputTime;
+	}
+
+	wasItemAddedGUI = true;
+	reading.index = size;
+	tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
+}
+
 void GotSerialChar(char c)
 {
 #ifdef _DEBUG
@@ -2224,6 +2321,10 @@ void GotSerialChar(char c)
 
 	static std::chrono::steady_clock::time_point pingStartTime;
 
+	// Because we are subtracting 2 similar unsigned long longs, we dont need another unsigned long long, we just need an int
+	static unsigned int internalTime = 0;
+	static unsigned int externalTime = 0;
+
 	switch (serialStatus)
 	{
 	case Status_Idle:
@@ -2231,6 +2332,7 @@ void GotSerialChar(char c)
 		if (c == 'l')
 		{
 			internalStartTime = std::chrono::high_resolution_clock::now();
+			lastInternalTest = micros();
 #ifdef _DEBUG
 			printf("waiting for results\n");
 #endif
@@ -2267,9 +2369,8 @@ void GotSerialChar(char c)
 		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added. (Little did he know)
 		if (c == 'e')
 		{
-			// Because we are subtracting 2 similar unsigned long longs, we dont need another unsigned long long, we just need an int
-			unsigned int internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
-			unsigned int externalTime = 0;
+			externalTime = 0;
+			internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
 			// Convert the byte array to int
 			for (size_t i = 0; i < min(resultNum, resultBufferSize); i++)
 			{
@@ -2283,7 +2384,7 @@ void GotSerialChar(char c)
 			{
 				serialStatus = Status_Idle;
 				ZeroMemory(resultBuffer, resultBufferSize);
-				break;;
+				break;
 			}
 
 			wasMouseClickSent = false;
@@ -2291,29 +2392,9 @@ void GotSerialChar(char c)
 #ifdef _DEBUG
 			printf("Final result: %i\n", externalTime);
 #endif
-			LatencyReading reading{ externalTime, internalTime };
-			size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
 
-			// Update the stats
-			tabsInfo[selectedTab].latencyStats.internalLatency.average = (tabsInfo[selectedTab].latencyStats.internalLatency.average * size) / (size + 1.f) + (internalTime / (size + 1.f));
-			tabsInfo[selectedTab].latencyStats.externalLatency.average = (tabsInfo[selectedTab].latencyStats.externalLatency.average * size) / (size + 1.f) + (externalTime / (size + 1.f));
+			//AddMeasurement(internalTime, externalTime, 0);
 
-			tabsInfo[selectedTab].latencyStats.internalLatency.highest = internalTime > tabsInfo[selectedTab].latencyStats.internalLatency.highest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.highest;
-			tabsInfo[selectedTab].latencyStats.externalLatency.highest = externalTime > tabsInfo[selectedTab].latencyStats.externalLatency.highest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.highest;
-
-			tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime < tabsInfo[selectedTab].latencyStats.internalLatency.lowest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.lowest;
-			tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime < tabsInfo[selectedTab].latencyStats.externalLatency.lowest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.lowest;
-
-			// If there are not measurements done yet set the minimum value to the current one
-			if (size == 0)
-			{
-				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime;
-				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime;
-			}
-
-			reading.index = size;
-			tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
-			wasItemAddedGUI = true;
 			//_write(Serial::fd, "p", 1);
 			Serial::Write("p", 1);
 			pingStartTime = std::chrono::high_resolution_clock::now();
@@ -2332,18 +2413,20 @@ void GotSerialChar(char c)
 		if (c == 'b')
 		{
 			unsigned int pingTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - pingStartTime).count();
-			tabsInfo[selectedTab].latencyData.measurements[tabsInfo[selectedTab].latencyData.measurements.size() - 1].timePing = pingTime;
+			//tabsInfo[selectedTab].latencyData.measurements[tabsInfo[selectedTab].latencyData.measurements.size() - 1].timePing = pingTime;
 
-			size_t size = tabsInfo[selectedTab].latencyData.measurements.size() - 1;
+			//size_t size = tabsInfo[selectedTab].latencyData.measurements.size(); -1;
 
-			tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
-			tabsInfo[selectedTab].latencyStats.inputLatency.highest = pingTime > tabsInfo[selectedTab].latencyStats.inputLatency.highest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.highest;
-			tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime < tabsInfo[selectedTab].latencyStats.inputLatency.lowest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.lowest;
+			AddMeasurement(internalTime, externalTime, pingTime);
 
-			if (size == 0)
-			{
-				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime;
-			}
+			//tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
+			//tabsInfo[selectedTab].latencyStats.inputLatency.highest = pingTime > tabsInfo[selectedTab].latencyStats.inputLatency.highest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.highest;
+			//tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime < tabsInfo[selectedTab].latencyStats.inputLatency.lowest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.lowest;
+
+			//if (size == 0)
+			//{
+			//	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime;
+			//}
 
 			serialStatus = Status_Idle;
 			tabsInfo[selectedTab].isSaved = false;
@@ -2548,6 +2631,78 @@ void CloseSerial()
 }
 #endif
 
+bool SetupAudioDevice()
+{
+	int res = curAudioDevice->AddBuffer(WARMUP_AUDIO_BUFFER_SIZE);
+	if (res)
+		return false;
+
+	res = curAudioDevice->AddBuffer(TEST_AUDIO_BUFFER_SIZE, true);
+	if (res)
+		return false;
+
+	return true;
+}
+
+bool CanDoInternalTest()
+{
+	return isInternalMode && curAudioDevice && (micros() > lastInternalTest + (INTERNAL_TEST_DELAY + (rand() / 10)));
+}
+
+void DiscoverAudioDevices()
+{
+	AudioDeviceInfo* devices;
+	UINT devCount = GetAudioDevices(&devices);
+
+	availableAudioDevices.clear();
+
+	for (int i = 0; i < devCount; i++)
+	{
+		auto& dev = devices[i];
+		availableAudioDevices.push_back(cAudioDeviceInfo());
+
+		size_t _charsConverted;
+
+		int size_offset = 0;
+		int end_offset = 0;
+		if (wcsstr(dev.friendlyName, L"Microphone (") == dev.friendlyName) {
+			size_offset += 12;
+			end_offset += 1;
+		}
+
+		char* fName = new char[wcslen(dev.friendlyName) + 1 - size_offset];
+		wcstombs_s(&_charsConverted, fName, wcslen(dev.friendlyName) + 1 - size_offset, dev.friendlyName + size_offset, wcslen(dev.friendlyName));
+
+		fName[strlen(fName) - end_offset] = 0;
+
+		char* pName = new char[wcslen(dev.portName) + 1];
+		wcstombs_s(&_charsConverted, pName, wcslen(dev.portName) + 1, dev.portName, wcslen(dev.portName));
+
+		availableAudioDevices[i].friendlyName = fName;
+		availableAudioDevices[i].portName = pName;
+		availableAudioDevices[i].id = dev.id;
+		availableAudioDevices[i].WASAPI_id = dev.WASAPI_id;
+		availableAudioDevices[i].AudioEnchantments = dev.AudioEnchantments;
+	}
+
+	delete[] devices;
+}
+
+void StartInternalTest()
+{
+	if (!CanDoInternalTest())
+		return;
+
+	serialStatus = Status_AudioReadying;
+
+	lastInternalTest = micros();
+
+	if (curAudioDevice->GetPlayTime().u.sample > 0)
+		curAudioDevice->ResetRecording();
+	else
+		curAudioDevice->StartRecording();
+}
+
 bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 {
 	IDXGIOutput* output;
@@ -2616,6 +2771,50 @@ void HandleGameMode()
 	//}
 }
 
+void AttemptConnect()
+{
+	if (!Serial::availablePorts.empty())
+	{
+		if (isInternalMode)
+		{
+			if (curAudioDevice)
+				delete curAudioDevice;
+
+			curAudioDevice = new Waveform_SoundHelper(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 2, AUDIO_SAMPLE_RATE, 16, waveInCallback);
+			if (curAudioDevice && curAudioDevice->isCreated)
+				isAudioDevConnected = true;
+
+			isAudioDevConnected = SetupAudioDevice();
+
+			if (isAudioDevConnected)
+				SetAudioEnchantments(false, availableAudioDevices[selectedPort].WASAPI_id);
+		}
+		else
+			Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
+	}
+}
+
+void AttemptDisconnect()
+{
+	if (isInternalMode)
+	{
+		curAudioDevice->StopRecording();
+
+		SetAudioEnchantments(availableAudioDevices[selectedPort].AudioEnchantments, availableAudioDevices[selectedPort].WASAPI_id);
+
+		if (curAudioDevice)
+			delete curAudioDevice;
+
+		curAudioDevice = nullptr;
+
+		isAudioDevConnected = false;
+	}
+	else {
+		Serial::Close();
+		serialStatus = Status_Idle;
+	}
+}
+
 // Returns true if should exit, false otherwise
 bool OnExit()
 {
@@ -2644,18 +2843,100 @@ bool OnExit()
 	return isSaved;
 }
 
+void KeyDown(WPARAM key, LPARAM info, bool isPressed)
+{
+	//enum class ModKey {
+	//	ModKey_None = 0,
+	//	ModKey_Ctrl = 1,
+	//	ModKey_Shift = 2,
+	//	ModKey_Alt = 4,
+	//}; Just for information
+	
+	bool wasJustClicked = !(info & 0x40000000);
+	static unsigned char modKeyFlags = 0;
+
+	if (isPressed && (key == VK_CONTROL || key == VK_LCONTROL))
+		modKeyFlags |= 1;
+
+	if (!isPressed && (key == VK_CONTROL || key == VK_LCONTROL))
+		modKeyFlags ^= 1;
+
+
+	if (isPressed && (key == VK_SHIFT || key == VK_RSHIFT))
+		modKeyFlags |= 2;
+
+	if (!isPressed && (key == VK_SHIFT || key == VK_RSHIFT))
+		modKeyFlags ^= 2;
+
+
+	if (isPressed && (key == VK_LMENU || key == VK_RMENU))
+		modKeyFlags |= 4;
+
+	if (!isPressed && (key == VK_LMENU || key == VK_RMENU))
+		modKeyFlags ^= 4;
+
+
+	// Handle time-sensitive KB input
+	if (isInternalMode && key == 'R' && isPressed && modKeyFlags == 2 && !serialStatus == Status_WaitingForResult)
+	{
+		StartInternalTest();
+	}
+
+	if (modKeyFlags == 1 && isPressed)
+	{
+		if (key == 'S' && wasJustClicked)
+		{
+			SaveMeasurements();
+		}
+		else if (key == 'O' && wasJustClicked)
+		{
+			OpenMeasurements();
+		}
+		else if (key == 'N' && wasJustClicked)
+		{
+			auto newTab = TabInfo();
+			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+			tabsInfo.push_back(newTab);
+			selectedTab = tabsInfo.size() - 1;
+		}
+		else if (key == 'Q' && wasJustClicked)
+		{
+			if (isInternalMode ? isAudioDevConnected : Serial::isConnected)
+				AttemptDisconnect();
+			else
+				AttemptConnect();
+		}
+	}
+	if (modKeyFlags == 3 && key == 'S' && wasJustClicked)
+		SaveAsMeasurements();
+	if ((modKeyFlags & 4) == 4 && isPressed)
+	{
+		if (key == 'S' && modKeyFlags == 4 && wasJustClicked)
+		{
+			SavePackMeasurements();
+		}
+
+		if (key == 'S' && (modKeyFlags & 2) == 2 && wasJustClicked)
+		{
+			SavePackAsMeasurements();
+		}
+	}
+}
+
 // Main code
 int main(int argc, char** argv)
 {
 	hwnd = GUI::Setup(OnGui);
 	GUI::onExitFunc = OnExit;
 
+	srand(time(NULL));
+		
 	localPath = argv[0];
 
 	QueryPerformanceCounter(&StartingTime);
 
-	if (SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
-		printf("Priotity set to Highest\n");
+	//if (SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
+	//	printf("Priotity set to the Highest\n");
 
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
@@ -2671,6 +2952,10 @@ int main(int argc, char** argv)
 	bool done = false;
 
 	ImGuiIO& io = ImGui::GetIO();
+
+	leftTabWidth = GUI::windowX/2;
+
+	GUI::KeyDownFunc = KeyDown;
 
 	auto defaultTab = TabInfo();
 	defaultTab.name[4] = '0';
@@ -2784,8 +3069,9 @@ int main(int argc, char** argv)
 
 	Serial::FindAvailableSerialPorts();
 
-	printf("Found %u serial Ports", Serial::availablePorts.size());
+	printf("Found %u serial Ports\n", Serial::availablePorts.size());
 
+	DiscoverAudioDevices();
 
 	//BOOL fScreen;
 	//IDXGIOutput* output;
@@ -2803,6 +3089,7 @@ int main(int argc, char** argv)
 
 	int GUI_Return_Code = 0;
 
+
 MainLoop:
 
 	// Main Loop
@@ -2814,9 +3101,8 @@ MainLoop:
 		//	HandleGameMode();
 
 		// GUI Loop
-
 		uint64_t curTime = micros();
-		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ? 
+		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ?
 			(GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 :
 			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
 		{
@@ -2851,8 +3137,10 @@ MainLoop:
 		totalFrames++;
 		lastFrame = curTime;
 
+#ifdef _DEBUG
 		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
-		//Sleep(1);
+		Sleep(1);
+#endif // _DEBUG
 	}
 
 	// Check if everything is saved before exiting the program.

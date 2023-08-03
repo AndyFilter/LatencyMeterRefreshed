@@ -48,6 +48,12 @@
     <ClCompile Include="helperJson.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Audio\Sound_Helper.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="External\ImGui\imgui_extensions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="External\ImGui\imconfig.h">
@@ -98,6 +104,12 @@
     <ClInclude Include="Fonts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Audio\Sound_Helper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="External\ImGui\imgui_extensions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="LatencyMeterRefreshed.rc">
@@ -111,5 +123,8 @@
     <Image Include="..\..\Media\LatencyMeterIco.png">
       <Filter>Resource Files</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="cpp.hint" />
   </ItemGroup>
 </Project>

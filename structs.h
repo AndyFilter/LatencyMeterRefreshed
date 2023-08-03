@@ -4,6 +4,7 @@ enum SerialStatus
 {
 	Status_Idle,
 	Status_WaitingForResult,
+	Status_AudioReadying,
 	Status_WaitingForPing,
 };
 
@@ -35,6 +36,7 @@ struct LatencyData
 	char note[1000]{ 0 };
 };
 
+#define TAB_NAME_MAX_SIZE 64
 struct TabInfo
 {
 	LatencyData latencyData {};
@@ -42,8 +44,9 @@ struct TabInfo
 
 	bool isSaved = true;
 	char savePath[260]{ 0 };
+	char savePathPack[260]{ 0 };
 
-	char name[32]{ "Tab " };
+	char name[TAB_NAME_MAX_SIZE]{ "Tab " };
 };
 
 
@@ -70,6 +73,8 @@ struct PerformanceData
 	int guiLockedFps;
 
 	bool showPlots;
+
+	//float maxSerialReadFrequency = 600;
 
 	unsigned int VSync;
 };

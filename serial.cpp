@@ -15,6 +15,8 @@ OVERLAPPED osReader{ 0 };
 //char buffer[256]{ 0 };
 
 static bool isSafeToClose = false;
+static LARGE_INTEGER StartingTime{ 0 };
+uint64_t micros1();
 
 static void (*OnCharReceived)(char c);
 
@@ -35,14 +37,159 @@ void Serial::FindAvailableSerialPorts()
 	}
 }
 
-void ReadIO(HANDLE hSerial, int (&fComm), LPOVERLAPPED osOverlapped, LPVOID dataRxFunc)
+struct IO_Comm_Data
 {
-	auto OnCharReceived = ((void(*)(char))dataRxFunc);
+	HANDLE hSerial;
+	int& fComm;
+	LPOVERLAPPED osOverlapped;
+	LPVOID dataRxFunc;
+
+	IO_Comm_Data(const HANDLE& hSerial, int& fComm, const LPOVERLAPPED& osOverlapped, const LPVOID& dataRxFunc)
+		: hSerial(hSerial), fComm(fComm), osOverlapped(osOverlapped), dataRxFunc(dataRxFunc)
+	{
+	}
+};
+
+static uint64_t startTime = 0;
+static uint64_t readCount = 0;
+
+void ThreadedReadIO(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1, DWORD_PTR dw2)
+{
+	if (!Serial::isConnected)
+		return;
+
+	readCount++;
+
+	IO_Comm_Data* data = (IO_Comm_Data*)dwUser;
+
+	//uint64_t curTime = micros1();
+
+	HANDLE hSerial = data->hSerial;
+	int(&fComm) = data->fComm;
+	LPOVERLAPPED osOverlapped = data->osOverlapped;
+	LPVOID dataRxFunc = data->dataRxFunc;
+
 
 #ifdef BufferedSerialComm
 
+	if (fComm == -1)
+		return;
+
+	unsigned int nbytes = BYTES_TO_READ;
+	char buffer[BYTES_TO_READ]{ 0 };
+
+	int bytesRead = _read(fComm, buffer, nbytes);
+
+	if (bytesRead > 0)
+	{
+		if (OnCharReceived)
+		{
+			for (int i = 0; i < bytesRead; i++)
+			{
+				OnCharReceived(buffer[i]);
+			}
+		}
+	}
+
+#else
+
+	if (!hSerial)
+		return;
+
+	DWORD dwCommModemStatus{};
+	BYTE byte[BYTES_TO_READ]{};
+
+	DWORD dwRead = 0;
+	static BOOL fWaitingOnRead{ FALSE };
+
+	if (osOverlapped->hEvent == INVALID_HANDLE_VALUE)
+	{
+		printf("Creating a new reader Event\n");
+		osOverlapped->hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	}
+
+
+	if (!fWaitingOnRead)
+	{
+		// Issue read operation. Try to read as many bytes as possible to empty the buffer and avoid any additional latency.
+		// The timeouts are all set to 0, so if there are less than BYTES_TO_READ bytes to read it will just read all available,
+		// set "dwRead" to the value of bytes read and then process all the bytes separately. 
+		if (!ReadFile(hSerial, &byte, BYTES_TO_READ, &dwRead, osOverlapped))
+		{
+			// This error most likely means that the device was disconnected, or something bad happened to it. It's better to close the serial either way.
+			if (GetLastError() != ERROR_IO_PENDING)
+			{
+				printf("IO Error");
+				Serial::Close();
+			}
+			else
+				fWaitingOnRead = TRUE;
+		}
+		else
+		{
+			// read completed immediately
+			if (dwRead)
+				if (OnCharReceived)
+				{
+					for (int i = 0; i < dwRead; i++)
+					{
+						OnCharReceived(byte[i]);
+					}
+				}
+		}
+	}
+
+	DWORD dwRes;
+	if (fWaitingOnRead) {
+		dwRes = WaitForSingleObject(osOverlapped->hEvent, 1);
+		switch (dwRes)
+		{
+			// Read completed.
+		case WAIT_OBJECT_0:
+			if (!GetOverlappedResult(hSerial, osOverlapped, &dwRead, FALSE))
+				printf("error in comm");
+			// Error in communications; report it.
+			else
+			{
+				// read completed immediately
+				if (dwRead)
+					if (OnCharReceived)
+					{
+						for (int i = 0; i < dwRead; i++)
+						{
+							OnCharReceived(byte[i]);
+						}
+					}
+			}
+			fWaitingOnRead = FALSE;
+			break;
+		case WAIT_TIMEOUT:
+			break;
+		default:
+			break;
+		}
+	}
+#endif
+}
+
+void ReadIO(HANDLE hSerial, int (&fComm), LPOVERLAPPED osOverlapped, LPVOID dataRxFunc)
+{
+	auto OnCharReceived = ((void(*)(char))dataRxFunc);
+	//uint64_t lastReadDuration = 0;
+	//uint64_t lastRead = 0;
+	//QueryPerformanceCounter(&StartingTime);
+
+	//startTime = micros1();
+
+	//IO_Comm_Data *threadedData = new IO_Comm_Data(hSerial, fComm, osOverlapped, dataRxFunc);
+	//auto evId = timeSetEvent(1000/ SERIAL_UPDATE_TIME, 0, ThreadedReadIO, (DWORD_PTR)threadedData, TIME_PERIODIC);
+	//delete threadedData;
+
 	while (Serial::isConnected)
 	{
+
+#ifdef BufferedSerialComm
+
 		if (fComm == -1)
 			return;
 
@@ -61,12 +208,9 @@ void ReadIO(HANDLE hSerial, int (&fComm), LPOVERLAPPED osOverlapped, LPVOID data
 				}
 			}
 		}
-	}
 
 #else
 
-	while (Serial::isConnected)
-	{
 		if (!hSerial)
 			return;
 
@@ -115,7 +259,7 @@ void ReadIO(HANDLE hSerial, int (&fComm), LPOVERLAPPED osOverlapped, LPVOID data
 
 		DWORD dwRes;
 		if (fWaitingOnRead) {
-			dwRes = WaitForSingleObject(osOverlapped->hEvent, 1);
+			dwRes = WaitForSingleObject(osOverlapped->hEvent, 100);
 			switch (dwRes)
 			{
 				// Read completed.
@@ -143,11 +287,11 @@ void ReadIO(HANDLE hSerial, int (&fComm), LPOVERLAPPED osOverlapped, LPVOID data
 				break;
 			}
 		}
+	 #endif
 	}
 
 	CancelIo(hSerial);
 
-#endif
 
 	isSafeToClose = true;
 	return;
@@ -199,7 +343,7 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	if (!GetCommState(hPort, &serialParams))
 		return false;
 
-	serialParams.BaudRate = 19200;
+	serialParams.BaudRate = BAUD_RATE;
 	serialParams.Parity = NOPARITY;
 	serialParams.ByteSize = 8;
 	serialParams.StopBits = ONESTOPBIT;
@@ -249,251 +393,6 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 
 	isConnected = true;
 	return true;
-}
-
-void Serial::HandleInput()
-{
-
-#ifdef BufferedSerialComm
-
-	if (fd == -1)
-		return;
-
-	unsigned int nbytes = BYTES_TO_READ;
-	char buffer[BYTES_TO_READ]{0};
-
-	int bytesRead = _read(fd, buffer, nbytes);
-
-	if (bytesRead > 0)
-	{
-		if (OnCharReceived)
-		{
-			for (int i = 0; i < bytesRead; i++)
-			{
-				OnCharReceived(buffer[i]);
-			}
-		}
-	}
-
-	return;
-
-#else // BufferedSerialComm
-
-	if (!isConnected || !hPort)
-		return;
-
-	//if (OnCharReceived)
-	//{
-	//	for (int i = 0; i < strlen(buffer); i++)
-	//	{
-	//		OnCharReceived(buffer[i]);
-	//	}
-	//	if (strlen(buffer) > 0)
-	//		printf("buffer: %s\n", buffer);
-	//	memset(buffer, 0, 256);
-	//}
-	//return;
-
-	DWORD dwCommModemStatus{};
-	BYTE byte[BYTES_TO_READ]{};
-
-	DWORD dwRead = 0;
-	static BOOL fWaitingOnRead{ FALSE };
-
-
-
-	//dwRead = fread(&byte, 1, sizeof(byte), hFile);
-	//hFile.read((char*)byte, BYTES_TO_READ);
-
-	//if (dwRead)
-	//	if (OnCharReceived)
-	//	{
-	//		for (int i = 0; i < dwRead; i++)
-	//		{
-	//			OnCharReceived(byte[i]);
-	//		}
-	//	}
-
-
-	//Synchronous
-	//static COMSTAT status{};
-	//DWORD errors = 0;
-
-	//auto clear = ClearCommError(hPort, &errors, &status);
-	////ReadFileEx()
-	//if(!clear || errors)
-	//{
-	//char lastError[1024];
-	//FormatMessage(
-	//	FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-	//	NULL,
-	//	GetLastError(),
-	//	MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-	//	lastError,
-	//	1024,
-	//	NULL);
-	//printf(lastError);
-	//}
-
-	//if (status.cbInQue > 0)
-	//{
-	//	if (!ReadFile(hPort, byte, min(status.cbInQue, BYTES_TO_READ), &dwRead, NULL))
-	//	{
-	//		printf("Error reading hPort");
-	//	}
-	//	else
-	//		if (dwRead)
-	//			if (OnCharReceived)
-	//			{
-	//				for (int i = 0; i < dwRead; i++) 
-	//				{
-	//					OnCharReceived(byte[i]);
-	//				}
-	//			}
-	//}
-
-	//return;
-
-
-
-	if (osReader.hEvent == INVALID_HANDLE_VALUE)
-	{
-		printf("Creating a new reader Event\n");
-		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	}
-
-	//DWORD written;
-	//const char* szBuff{ "pppppppppppp" };
-	//if (!WriteFile(hPort, "p", 2, &written, osReader))
-	//{
-	//	char lastError[1024];
-	//	FormatMessage(
-	//		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-	//		NULL,
-	//		GetLastError(),
-	//		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-	//		lastError,
-	//		1024,
-	//		NULL);
-	//	printf(lastError);
-	//}
-	//else
-	//	printf("Sending 'p', written: %i\n", written);
-
-
-	if (!fWaitingOnRead)
-	{
-		// Issue read operation. Try to read as many bytes as possible to empty the buffer and avoid any additional latency.
-		// The timeouts are all set to 0, so if there are less than BYTES_TO_READ bytes to read it will just read all available,
-		// set "dwRead" to the value of bytes read and then process all the bytes separately. 
-		if (!ReadFile(hPort, &byte, BYTES_TO_READ, &dwRead, &osReader))
-		{
-			// This error most likely means that the device was disconnected, or something bad happened to it. It's better to close the serial either way.
-			if (GetLastError() != ERROR_IO_PENDING)
-			{
-				printf("IO Error");
-				Close();
-			}
-			else
-				fWaitingOnRead = TRUE;
-		}
-		else
-		{
-			// read completed immediately
-			if (dwRead)
-				if (OnCharReceived)
-				{
-					for (int i = 0; i < dwRead; i++) 
-					{
-						OnCharReceived(byte[i]);
-					}
-				}
-		}
-	}
-
-	DWORD dwRes;
-	if (fWaitingOnRead) {
-		dwRes = WaitForSingleObject(osReader.hEvent, 1);
-		switch (dwRes)
-		{
-			// Read completed.
-		case WAIT_OBJECT_0:
-			if (!GetOverlappedResult(hPort, &osReader, &dwRead,	FALSE))
-				printf("error in comm");
-			// Error in communications; report it.
-			else
-			{
-				// read completed immediately
-				if (dwRead)
-					if (OnCharReceived)
-					{
-						for (int i = 0; i < dwRead; i++)
-						{
-							OnCharReceived(byte[i]);
-						}
-					}
-			}
-			fWaitingOnRead = FALSE;
-			break;
-		case WAIT_TIMEOUT:
-			break;
-		default:
-			break;
-		}
-	}
-
-
-//	// Create the overlapped event. Must be closed before exiting
-//	// to avoid a handle leak.
-//	if (!fWaitingOnRead) {
-//		if (!ReadFile(hPort, byte, BYTES_TO_READ, &dwRead, &osReader)) {
-//			if (GetLastError() != ERROR_IO_PENDING) // read not delayed ?
-//				printf("error in comm");
-//			else
-//				fWaitingOnRead = TRUE;
-//		}
-//	}
-//
-//
-//#define READ_TIMEOUT 0 // milliseconds
-//	DWORD dwRes;
-//	if (fWaitingOnRead) {
-//		dwRes = WaitForSingleObject(osReader.hEvent, READ_TIMEOUT);
-//		switch (dwRes)
-//		{
-//			// Read completed.
-//		case WAIT_OBJECT_0:
-//			if (!GetOverlappedResult(hPort, &osReader, &dwRead,	FALSE))
-//				printf("error in comm");
-//			// Error in communications; report it.
-//			fWaitingOnRead = FALSE;
-//			break;
-//		case WAIT_TIMEOUT:
-//			break;
-//		default:
-//			break;
-//		}
-//	}
-//
-//	isWaitingForWrite = false;
-//	for (int i = 0; i < dwRead; i++)
-//	{
-//		if (byte[i] == 'e')
-//		{
-//			isWaitingForWrite = true;
-//		}
-//	}
-//
-//	if (dwRead)
-//		if (OnCharReceived)
-//		{
-//			for (int i = 0; i < dwRead; i++)
-//			{
-//				OnCharReceived(byte[i]);
-//			}
-//		}
-
-#endif
 }
 
 BOOL WriteABuffer(char* lpBuf, DWORD dwToWrite)
@@ -607,4 +506,22 @@ void Serial::Close()
 	}
 
 	isConnected = false;
+
+	//printf("Read IO was running on average: %f\n", 1000000.f * (float)readCount / (micros1() - startTime));
+}
+
+uint64_t micros1()
+{
+	LARGE_INTEGER EndingTime, ElapsedMicroseconds;
+	LARGE_INTEGER Frequency;
+
+	QueryPerformanceFrequency(&Frequency);
+
+	QueryPerformanceCounter(&EndingTime);
+	ElapsedMicroseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
+
+	ElapsedMicroseconds.QuadPart *= 1000000;
+	ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
+
+	return ElapsedMicroseconds.QuadPart;
 }

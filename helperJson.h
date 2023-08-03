@@ -15,7 +15,9 @@ namespace HelperJson
 
 	void SaveLatencyTests(TabInfo tests, char path[_MAX_PATH]);
 
-	void GetLatencyTests(TabInfo& tests, char path[_MAX_PATH]);
+	size_t GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH]);
+
+	void SaveLatencyTestsPack(std::vector<TabInfo> tabs, char path[_MAX_PATH]);
 
 	void UserConfigLocationChanged(bool isNewLocal);
 

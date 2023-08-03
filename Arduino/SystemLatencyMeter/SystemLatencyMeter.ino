@@ -26,7 +26,7 @@ void setup() {
   }
 }
 
-auto timingFunc = micros;
+auto timingFunc = micros;7
 
 void loop() {
     LDRValue = analogRead(LDR);

@@ -48,6 +48,7 @@ void to_json(json& j, const PerformanceData& performanceData)
 		{"guiLockedFps", performanceData.guiLockedFps},
 		{"showPlots", performanceData.showPlots},
 		{"VSync", performanceData.VSync},
+		//{"maxSerialReadFrequency", performanceData.maxSerialReadFrequency},
 	};
 }
 
@@ -93,6 +94,21 @@ void to_json(json& j, TabInfo data)
 	};
 }
 
+//void to_json(json& j, std::vector<TabInfo> data)
+//{
+//	//for (auto& info : data)
+//	//{
+//	//	json _j = info;
+//	//	j += _j;
+//	//	//j += json
+//	//	//{
+//	//	//	{"measurements", info.latencyData.measurements },
+//	//	//	{"note", info.latencyData.note },
+//	//	//	{"name", info.name },
+//	//	//};
+//	//}
+//}
+
 
 void from_json(const json& j, PerformanceData& performanceData)
 {
@@ -100,6 +116,7 @@ void from_json(const json& j, PerformanceData& performanceData)
 	j.at("lockGuiFps").get_to(performanceData.lockGuiFps);
 	j.at("showPlots").get_to(performanceData.showPlots);
 	j.at("VSync").get_to(performanceData.VSync);
+	//j.at("maxSerialReadFrequency").get_to(performanceData.maxSerialReadFrequency);
 }
 
 void from_json(const json& j, MiscData& miscData)
@@ -147,6 +164,14 @@ void from_json(const json& j, TabInfo& reading)
 	j.at("measurements").get_to(reading.latencyData.measurements);
 	strcpy_s(reading.latencyData.note, j.value("note", "").c_str());
 	strcpy_s(reading.name, j.value("name", "").c_str());
+}
+
+void from_json(const json& j, std::vector<TabInfo> &data)
+{
+	for (auto& elem : j)
+	{
+		data.push_back(elem.get<TabInfo>());
+	}
 }
 
 std::wstring HelperJson::GetAppDataUserConfingPath()
@@ -293,7 +318,7 @@ void HelperJson::SaveLatencyTests(TabInfo tests, char path[_MAX_PATH])
 
 	// Sort array by index before saving
 	if(tests.latencyData.measurements.size() > 0)
-	qsort(&tests.latencyData.measurements[0], (size_t)tests.latencyData.measurements.size(), sizeof(tests.latencyData.measurements[0]), LatencyIndexSort);
+		qsort(&tests.latencyData.measurements[0], (size_t)tests.latencyData.measurements.size(), sizeof(tests.latencyData.measurements[0]), LatencyIndexSort);
 
 	std::ofstream saveFile(path);
 
@@ -307,16 +332,48 @@ void HelperJson::SaveLatencyTests(TabInfo tests, char path[_MAX_PATH])
 	saveFile.close();
 }
 
-void HelperJson::GetLatencyTests(TabInfo& tests, char path[_MAX_PATH])
+size_t HelperJson::GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH])
 {
 	//std::string fileName = savesPath + std::string(name) + std::string(".json");
 	std::ifstream saveFile(path);
 
 	if (!saveFile.good())
-		return;
+		return 0;
+
+	size_t elements = 0;
 
 	json j = json::parse(saveFile);
-	from_json(j, tests);
+	if (j.is_array()) {
+		from_json(j, tests);
+		elements = j.size();
+	}
+	else {
+		TabInfo info;
+		from_json(j, info);
+		tests.push_back(info);
+		elements = 1;
+	}
+
+	saveFile.close();
+
+	return elements;
+}
+
+void HelperJson::SaveLatencyTestsPack(std::vector<TabInfo> tabs, char path[_MAX_PATH])
+{
+	for (auto& tab : tabs) {
+		if (tab.latencyData.measurements.size() > 0)
+			qsort(&tab.latencyData.measurements[0], (size_t)tab.latencyData.measurements.size(), sizeof(tab.latencyData.measurements[0]), LatencyIndexSort);
+	}
+
+	std::ofstream saveFile(path);
+
+	if (!saveFile.good())
+		return;
+
+	json j = tabs;
+
+	saveFile << j.dump();
 
 	saveFile.close();
 }

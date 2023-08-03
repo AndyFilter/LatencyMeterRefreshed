@@ -15,9 +15,12 @@ namespace GUI
 	inline std::vector<IDXGIOutput*> vOutputs;
 	inline std::vector<IDXGIAdapter*> vAdapters;
 	inline bool (*onExitFunc)();
+	inline void (*KeyDownFunc)(WPARAM key, LPARAM info, bool isPressed);
 
 	inline UINT MAX_SUPPORTED_FRAMERATE;
 	inline UINT (*VSyncFrame);
+
+	static int windowX = 1080, windowY = 740;
 }
 
 #define TOOLTIP(...)					\

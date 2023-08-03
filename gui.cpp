@@ -10,6 +10,8 @@
 
 using namespace GUI;
 
+#pragma comment(lib, "d3d11.lib") 
+
 // Data
 //static ID3D11Device* g_pd3dDevice = NULL;
 static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
@@ -21,8 +23,6 @@ void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-static int windowX = 1080, windowY = 740;
 
 float defaultFontSize = 13.0f;
 
@@ -239,7 +239,7 @@ int GUI::DrawGui() noexcept
 	ImGui::SetNextWindowSize({ (float)size.x, (float)size.y });
 	ImGui::SetNextWindowPos({ 0,0 });
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
-	ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 	ImGui::PopStyleVar();
 
 	// Call the GUI function in main file
@@ -296,7 +296,6 @@ bool CreateDeviceD3D(HWND hWnd)
 	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
 	UINT createDeviceFlags = 0;
-	//createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 	D3D_FEATURE_LEVEL featureLevel;
 	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
 
@@ -428,6 +427,14 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				::PostQuitMessage(0);
 				return 0;
 			}
+	case WM_KEYDOWN:
+		if (KeyDownFunc)
+			KeyDownFunc(wParam, lParam, true);
+		break;
+	case WM_KEYUP:
+		if (KeyDownFunc)
+			KeyDownFunc(wParam, lParam, false);
+		break;
 	}
 	return ::DefWindowProc(hWnd, msg, wParam, lParam);
 }
