@@ -1,6 +1,6 @@
 # LatencyMeterRefreshed
 
-[![GitHub top language](https://img.shields.io/github/languages/top/AndyFilter/LatencyMeterRefreshed.svg)](https://en.wikipedia.org/wiki/C%2B%2B)  [![Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg)](https://en.wikipedia.org/wiki/Microsoft_Windows) ![GitHub all releases](https://img.shields.io/github/downloads/AndyFilter/LatencyMeterRefreshed/total.svg) [![GitHub](https://img.shields.io/github/license/AndyFilter/LatencyMeterRefreshed.svg)](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/main/LICENSE) 
+[![GitHub top language](https://img.shields.io/github/languages/top/AndyFilter/LatencyMeterRefreshed.svg)](https://en.wikipedia.org/wiki/C%2B%2B)  [![Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg)](https://en.wikipedia.org/wiki/Microsoft_Windows) [![GitHub all releases](https://img.shields.io/github/downloads/AndyFilter/LatencyMeterRefreshed/total.svg)](https://github.com/AndyFilter/LatencyMeterRefreshed/releases/latest)  [![GitHub](https://img.shields.io/github/license/AndyFilter/LatencyMeterRefreshed.svg)](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/main/LICENSE) 
 
 This program lets you **measure latency of your system** given that you have Arduino. ***Now in C++!***
 
