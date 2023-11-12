@@ -137,3 +137,14 @@ public:
 
 	~Waveform_SoundHelper();
 };
+
+struct WAV_HEADER;
+
+class WinAudio_Player {
+	WAV_HEADER* header;
+
+public:
+	bool Setup();
+	void SetBuffer(int (*func)(int));
+	void Play();
+};

@@ -14,6 +14,7 @@
 #include "gui.h"
 #include "Audio/Sound_Helper.h"
 #include "External/ImGui/imgui_extensions.h"
+#include <algorithm>
 
 // idk why I didn't just expose it in GUI.h...
 HWND hwnd;
@@ -101,6 +102,8 @@ SerialStatus serialStatus = Status_Idle;
 
 int selectedPort = 0;
 int lastSelectedPort = 0;
+
+InputMode selectedMode = InputMode_Normal;
 //std::vector<LatencyReading> latencyTests;
 //
 //LatencyStats latencyStats;
@@ -116,6 +119,11 @@ const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
 const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
 const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
 uint64_t lastInternalTest = 0;
+
+WinAudio_Player audioPlayer;
+
+std::chrono::steady_clock::time_point moddedMouseTimeClicked;
+bool wasModdedMouseTimeUpdated = false;
 
 std::vector<TabInfo> tabsInfo{};
 // --------
@@ -135,6 +143,7 @@ bool fullscreenModeClosePopup = false;
 
 bool isGameMode = false;
 bool isInternalMode = false;
+bool isAudioMode = false;
 bool wasLMB_Pressed = false;
 bool wasMouseClickSent = false;
 
@@ -193,6 +202,7 @@ TODO:
 - See what can be done about the inefficient Serial Comm code
 - Inform user of all the available keyboard shortcuts
 - Clean-up the audio code
+- Handle unpluging audio devices mid test
 
 */
 
@@ -236,10 +246,12 @@ bool AnalyzeData()
 
 		short sample = abs(curAudioDevice->audioBuffer[i] - baseAvg);
 
-		if (sample >= BUFFER_THRESHOLD)
+		if (sample >= BUFFER_THRESHOLD / (isAudioMode ? 4 : 1))
 		{
 			float millisElapsed = (1000000 * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
+#ifdef _DEBUG
 			std::cout << "latency: " << millisElapsed << ", base val: " << baseAvg << std::endl;
+#endif // _DEBUG
 			if (baseAvg > BUFFER_MAX_VALUE * 0.9f || millisElapsed <= 1)
 				return false;
 			AddMeasurement(millisElapsed, 0, 0);
@@ -272,6 +284,8 @@ void CALLBACK waveInCallback(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, DWORD
 			swapped_buffers = true;
 			reverted_buffers = false;
 			curAudioDevice->SwapToNextBuffer();
+			if (isAudioMode)
+				audioPlayer.Play();
 			serialStatus = Status_WaitingForResult;
 			break;
 		}
@@ -975,6 +989,7 @@ int OnGui()
 
 	if (ImGui::BeginMenuBar())
 	{
+		short openFullscreenCommand = 0;
 		//static bool saveMeasurementsPopup = false;
 		if (ImGui::BeginMenu("File"))
 		{
@@ -982,7 +997,15 @@ int OnGui()
 			if (ImGui::MenuItem("Save", "Ctrl+S")) { SaveMeasurements(); }
 			if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) { SaveAsMeasurements(); }
 			if (ImGui::MenuItem("Save Pack", "Alt+S")) { SavePackMeasurements(); }
-			if (ImGui::MenuItem("Save Pack", "Alt+Shift+S")) { SavePackAsMeasurements(); }
+			if (ImGui::MenuItem("Save Pack As", "Alt+Shift+S")) { SavePackAsMeasurements(); }
+			if (ImGui::MenuItem("Fullscreen", "Alt+Enter")) { 
+				GUI::g_pSwapChain->GetFullscreenState((BOOL*)&isFullscreen, nullptr);
+
+				if (!isFullscreen && !fullscreenModeOpenPopup)
+					openFullscreenCommand = 1;
+				else if (!fullscreenModeClosePopup && !fullscreenModeOpenPopup)
+					openFullscreenCommand = -1;
+			}
 			if (ImGui::MenuItem("Settings", "")) { isSettingOpen = !isSettingOpen; }
 			if (ImGui::MenuItem("Close", "")) { return 1; }
 			ImGui::EndMenu();
@@ -1015,7 +1038,17 @@ int OnGui()
 			ImGui::EndGroup();
 		}
 		ImGui::EndMenuBar();
+
+		if (openFullscreenCommand == 1) {
+			ImGui::OpenPopup("Enter Fullscreen mode?");
+			fullscreenModeOpenPopup = true;
+		}
+		else if (openFullscreenCommand == -1) {
+			ImGui::OpenPopup("Exit Fullscreen mode?");
+			fullscreenModeClosePopup = true;
+		}
 	}
+
 
 	const auto windowAvail = ImGui::GetContentRegionAvail();
 	ImGuiIO& io = ImGui::GetIO();
@@ -1104,12 +1137,12 @@ int OnGui()
 				}
 			}
 		}
-		else if (!io.KeyShift)
+		else if (!io.KeyShift && pressedKeys[0] == ImGuiKey_Escape)
 		{
 			BOOL isFS;
 			GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
 			isFullscreen = isFS;
-			if (pressedKeys[0] == ImGuiKey_Escape && isFullscreen && !fullscreenModeClosePopup && wasEscapeUp)
+			if (isFullscreen && !fullscreenModeClosePopup && wasEscapeUp)
 			{
 				wasEscapeUp = false;
 				ImGui::OpenPopup("Exit Fullscreen mode?");
@@ -1828,42 +1861,6 @@ int OnGui()
 			}
 		}
 
-		//ImGui::SameLine();
-
-		ImGui::EndGroup();
-
-		auto portItemsSize = ImGui::GetItemRectSize();
-
-		if (portItemsSize.x + restItemsSize.x + 30 < ImGui::GetContentRegionAvail().x)
-		{
-			ImGui::SameLine();
-			ImGui::Dummy({ -10, 0 });
-			ImGui::SameLine();
-			//ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-			//ImGui::SameLine();
-
-			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
-		}
-		else
-			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
-
-		ImGui::BeginGroup();
-
-		ImGui::Checkbox("Game Mode", &isGameMode);
-		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.");
-
-		ImGui::SameLine();
-
-		ImGui::BeginDisabled(isSelectedConnected);
-		if (ImGui::Checkbox("Internal Mode", &isInternalMode))
-		{
-			int bkpSelected = lastSelectedPort;
-			lastSelectedPort = selectedPort;
-			selectedPort = bkpSelected;
-		}
-		TOOLTIP("False - Use Arduino\nTrue - Use a light sensor connected to a 3.5mm audio port (Use the \"Run Test\" button).");
-		ImGui::EndDisabled();
-
 		ImGui::SameLine();
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
@@ -1891,6 +1888,93 @@ int OnGui()
 
 			ImGui::EndPopup();
 		}
+
+		//ImGui::SameLine();
+
+		ImGui::EndGroup();
+
+		auto portItemsSize = ImGui::GetItemRectSize();
+
+		if (portItemsSize.x + restItemsSize.x + 30 < ImGui::GetContentRegionAvail().x)
+		{
+			ImGui::SameLine();
+			ImGui::Dummy({ -10, 0 });
+			ImGui::SameLine();
+			//ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+			//ImGui::SameLine();
+
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
+		}
+		else
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
+
+		ImGui::BeginGroup();
+
+		ImGui::Checkbox("Game Mode", &isGameMode);
+		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.");
+
+		ImGui::SameLine();
+
+		ImGui::BeginDisabled(isSelectedConnected);
+		//ImGui::SetNextItemWidth(ImGui::CalcTextSize(GetInputModeName(InputMode_ModdedMouse)).x + style.ItemSpacing.x*2);
+		//if (ImGui::BeginCombo("Mode", GetInputModeName(selectedMode)))
+		//{
+		//	InputMode oldSelectedMode = selectedMode;
+		//	if (ImGui::Selectable(GetInputModeName(InputMode_Normal), selectedMode == InputMode_Normal, 0, { 0,0 }, style.FrameRounding))
+		//	{
+		//		selectedMode = InputMode_Normal;
+		//	}
+		//	TOOLTIP("Use Arduino with a button");
+		//	if (ImGui::Selectable(GetInputModeName(InputMode_ModdedMouse), selectedMode == InputMode_ModdedMouse, 0, { 0,0 }, style.FrameRounding))
+		//	{
+		//		selectedMode = InputMode_ModdedMouse;
+		//
+		//		RAWINPUTDEVICE rawDev;
+		//		rawDev.usUsagePage = 1;
+		//		rawDev.usUsage = 2;
+		//		rawDev.dwFlags = RIDEV_INPUTSINK;
+		//		rawDev.hwndTarget = hwnd;
+		//		if (!RegisterRawInputDevices(&rawDev, 1, sizeof(rawDev)))
+		//			printf("Failed to register raw input device\n");
+		//	}
+		//	TOOLTIP("Use Arduino with a \"hacked\" mouse connected to it");
+		//	if (ImGui::Selectable(GetInputModeName(InputMode_Internal), selectedMode == InputMode_Internal, 0, { 0,0 }, style.FrameRounding))
+		//	{
+		//		selectedMode = InputMode_Internal;
+		//	}
+		//	TOOLTIP("Use a light sensor connected to a 3.5mm audio port (Use the \"Run Test\" button)");
+		//	ImGui::EndCombo();
+		//
+		//	if (oldSelectedMode != selectedMode)
+		//	{
+		//		if (oldSelectedMode == InputMode_ModdedMouse)
+		//		{
+		//			RAWINPUTDEVICE rawDev;
+		//			rawDev.usUsagePage = 1;
+		//			rawDev.usUsage = 2;
+		//			rawDev.dwFlags = RIDEV_REMOVE;
+		//			rawDev.hwndTarget = 0;
+		//			if (!RegisterRawInputDevices(&rawDev, 1, sizeof(rawDev)))
+		//				printf("Failed to unregister raw input device\n");
+		//		}
+		//	}
+		//}
+		if (ImGui::Checkbox("Internal Mode", &isInternalMode))
+		{
+			int bkpSelected = lastSelectedPort;
+			lastSelectedPort = selectedPort;
+			selectedPort = bkpSelected;
+		}
+		ImGui::EndDisabled();
+		TOOLTIP("Uses a sensor connected to 3.5mm jack. (More info on Github)")
+
+		ImGui::SameLine();
+
+		if (ImGui::Checkbox("Audio Mode", &isAudioMode))
+		{
+
+		}
+		TOOLTIP("Measures Audio Latency (Uses a microphone instead of photoresistor)");
 
 		if (isInternalMode) {
 			ImGui::SameLine();
@@ -2161,7 +2245,7 @@ int OnGui()
 		bb.Min,
 		bb.Max,
 		// Change the color to white to be detected by the light sensor
-		serialStatus == Status_WaitingForResult && !isGameMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1.f)),
+		serialStatus == Status_WaitingForResult && !isGameMode && !isAudioMode ? ImGui::ColorConvertFloat4ToU32(ImVec4(1.f, 1.f, 1.f, 1)) : ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, 1.f)),
 		false
 	);
 	//if (ImGui::IsItemFocused())
@@ -2303,10 +2387,14 @@ void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime)
 	wasItemAddedGUI = true;
 	reading.index = size;
 	tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
+	tabsInfo[selectedTab].isSaved = false;
 }
 
 void GotSerialChar(char c)
 {
+	if (c == 0)
+		return;
+
 #ifdef _DEBUG
 	printf("Got: %c\n", c);
 #endif
@@ -2325,6 +2413,13 @@ void GotSerialChar(char c)
 	static unsigned int internalTime = 0;
 	static unsigned int externalTime = 0;
 
+
+	if (!((c >= 97 && c <= 122) || (c >= 48 && c <= 57)))
+	{
+		externalTime = internalTime = 0;
+		serialStatus = Status_Idle;
+	}
+
 	switch (serialStatus)
 	{
 	case Status_Idle:
@@ -2338,6 +2433,8 @@ void GotSerialChar(char c)
 #endif
 			serialStatus = Status_WaitingForResult;
 
+			if (isAudioMode)
+				audioPlayer.Play();
 
 			if (isGameMode)
 			{
@@ -2389,6 +2486,9 @@ void GotSerialChar(char c)
 
 			wasMouseClickSent = false;
 			wasLMB_Pressed = false;
+
+			//if (!wasModdedMouseTimeUpdated)
+			//	moddedMouseTimeClicked += std::chrono::microseconds(375227);
 #ifdef _DEBUG
 			printf("Final result: %i\n", externalTime);
 #endif
@@ -2412,11 +2512,20 @@ void GotSerialChar(char c)
 	case Status_WaitingForPing:
 		if (c == 'b')
 		{
-			unsigned int pingTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - pingStartTime).count();
+			unsigned int pingTime = 0;
+			//if (selectedMode == InputMode_ModdedMouse) {
+			//	pingTime = std::chrono::duration_cast<std::chrono::microseconds>(abs(moddedMouseTimeClicked - internalStartTime)).count();
+			//	wasModdedMouseTimeUpdated = false;
+			//}
+			//else
+			pingTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - pingStartTime).count();
 			//tabsInfo[selectedTab].latencyData.measurements[tabsInfo[selectedTab].latencyData.measurements.size() - 1].timePing = pingTime;
 
 			//size_t size = tabsInfo[selectedTab].latencyData.measurements.size(); -1;
-
+			// account for the serial timeout delay (this is just an estimate)
+			internalTime -= 500000 / SERIAL_UPDATE_TIME;
+			externalTime -= 1000 / SERIAL_UPDATE_TIME;
+			pingTime -= 1000000 / SERIAL_UPDATE_TIME;
 			AddMeasurement(internalTime, externalTime, pingTime);
 
 			//tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
@@ -2429,7 +2538,6 @@ void GotSerialChar(char c)
 			//}
 
 			serialStatus = Status_Idle;
-			tabsInfo[selectedTab].isSaved = false;
 		}
 		break;
 	default:
@@ -2851,9 +2959,15 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 	//	ModKey_Shift = 2,
 	//	ModKey_Alt = 4,
 	//}; Just for information
+
 	
 	bool wasJustClicked = !(info & 0x40000000);
 	static unsigned char modKeyFlags = 0;
+
+	if (key == -1 && info == -1) {
+		modKeyFlags = 0;
+		return;
+	}
 
 	if (isPressed && (key == VK_CONTROL || key == VK_LCONTROL))
 		modKeyFlags |= 1;
@@ -2869,11 +2983,13 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 		modKeyFlags ^= 2;
 
 
-	if (isPressed && (key == VK_LMENU || key == VK_RMENU))
+	if (isPressed && (key == VK_LMENU || key == VK_RMENU || key == VK_MENU))
 		modKeyFlags |= 4;
 
-	if (!isPressed && (key == VK_LMENU || key == VK_RMENU))
+	if (!isPressed && (key == VK_LMENU || key == VK_RMENU || key == VK_MENU))
 		modKeyFlags ^= 4;
+
+	printf("Key mod: %u\n", modKeyFlags);
 
 
 	// Handle time-sensitive KB input
@@ -2923,6 +3039,28 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 	}
 }
 
+//void RawInputEvent(RAWINPUT* ri)
+//{
+//	if (ri->header.dwType == RIM_TYPEMOUSE)
+//	{
+//		if ((ri->data.mouse.usButtonFlags & RI_MOUSE_BUTTON_1_DOWN) == RI_MOUSE_BUTTON_1_DOWN) {
+//			moddedMouseTimeClicked = std::chrono::high_resolution_clock::now();
+//			wasModdedMouseTimeUpdated = true;
+//			//printf("mouse button pressed\n");
+//		}
+//	}
+//}
+
+void millisSleep(LONGLONG ns) {
+	::LARGE_INTEGER ft;
+	ft.QuadPart = -static_cast<int64_t>(ns*10);  // '-' using relative time
+
+	::HANDLE timer = ::CreateWaitableTimer(NULL, TRUE, NULL);
+	::SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+	::WaitForSingleObject(timer, 20);
+	::CloseHandle(timer);
+}
+
 // Main code
 int main(int argc, char** argv)
 {
@@ -2956,6 +3094,7 @@ int main(int argc, char** argv)
 	leftTabWidth = GUI::windowX/2;
 
 	GUI::KeyDownFunc = KeyDown;
+	//GUI::RawInputEventFunc = RawInputEvent;
 
 	auto defaultTab = TabInfo();
 	defaultTab.name[4] = '0';
@@ -3058,7 +3197,7 @@ int main(int argc, char** argv)
 		// Note: this style might be a little bit different prior to applying it. (different darker colors)
 	}
 
-	// Just imagine what would happen if user for example had a 220 character long username and path to %AppData + "imgui.ini" would exceed 260. lovely
+	// Just imagine what would happen if user for example had a 220 character long username and path to %AppData% + "imgui.ini" would exceed 260. lovely
 	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfingPath() : HelperJson::GetAppDataUserConfingPath());
 	imguiFileIniPath = imguiFileIniPath.substr(0, imguiFileIniPath.find_last_of(L"\\/") + 1) + L"imgui.ini";
 	char outputPathBuffer[MAX_PATH];
@@ -3069,9 +3208,15 @@ int main(int argc, char** argv)
 
 	Serial::FindAvailableSerialPorts();
 
-	printf("Found %u serial Ports\n", Serial::availablePorts.size());
+	printf("Found %lld serial Ports\n", Serial::availablePorts.size());
 
 	DiscoverAudioDevices();
+
+	// Setup Audio buffer (with noise)
+	audioPlayer.Setup();
+	//audioPlayer.SetBuffer([](int i) { return (rand() * 2 - RAND_MAX) % RAND_MAX; });
+	//audioPlayer.SetBuffer([](int i) { return rand() % SHRT_MAX; });
+	audioPlayer.SetBuffer([](int i) { return (int)(sinf(i/4.f) * RAND_MAX); });
 
 	//BOOL fScreen;
 	//IDXGIOutput* output;
@@ -3089,6 +3234,9 @@ int main(int argc, char** argv)
 
 	int GUI_Return_Code = 0;
 
+	TIMECAPS tc;
+	timeGetDevCaps(&tc, sizeof(tc));
+	timeBeginPeriod(tc.wPeriodMin);
 
 MainLoop:
 
@@ -3137,6 +3285,17 @@ MainLoop:
 		totalFrames++;
 		lastFrame = curTime;
 
+		// Try to sleep enough to "wake up" right before having to display another frame
+		if (!currentUserData.performance.VSync && currentUserData.performance.lockGuiFps)
+		{
+			uint64_t frameTime = 1000000 / currentUserData.performance.guiLockedFps;
+			uint64_t nextFrameIn = lastFrameGui + frameTime - curTime - lastFrameRenderTime;
+
+			if (nextFrameIn > 2500)
+				millisSleep((nextFrameIn - 2400));
+				//std::this_thread::sleep_for(std::chrono::microseconds(nextFrameIn - 1050));
+		}
+
 #ifdef _DEBUG
 		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
 		Sleep(1);
@@ -3149,6 +3308,12 @@ MainLoop:
 		goto MainLoop;
 	}
 
+	if (curAudioDevice) {
+		curAudioDevice->StopRecording();
+		delete curAudioDevice;
+	}
+
+	timeEndPeriod(tc.wPeriodMin);
 	Serial::Close();
 	GUI::Destroy();
 }

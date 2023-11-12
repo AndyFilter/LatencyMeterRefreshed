@@ -258,7 +258,9 @@ int GUI::DrawGui() noexcept
 	g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
 	//g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-	g_pSwapChain->Present(*VSyncFrame, 0);
+	auto presentRes = g_pSwapChain->Present(*VSyncFrame, 0);
+	if (presentRes == DXGI_STATUS_OCCLUDED)
+		Sleep(1);
 	return 0;
 }
 
@@ -392,6 +394,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 	switch (msg)
 	{
+	case WM_SETFOCUS:
+		if (KeyDownFunc)
+			KeyDownFunc(-1, -1, 0);
+		break;
 	case WM_SIZE:
 		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
 		{
@@ -427,6 +433,15 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				::PostQuitMessage(0);
 				return 0;
 			}
+		break;
+	case WM_SYSKEYDOWN:
+		if (KeyDownFunc)
+			KeyDownFunc(wParam, lParam, true);
+		break;
+	case WM_SYSKEYUP:
+		if (KeyDownFunc)
+			KeyDownFunc(wParam, lParam, false);
+		break;
 	case WM_KEYDOWN:
 		if (KeyDownFunc)
 			KeyDownFunc(wParam, lParam, true);
@@ -435,6 +450,39 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (KeyDownFunc)
 			KeyDownFunc(wParam, lParam, false);
 		break;
+	//case WM_INPUT:
+	//{
+	//	if (!RawInputEventFunc)
+	//		break;
+	//	UINT dwSize;
+	//
+	//	GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &dwSize, sizeof(RAWINPUTHEADER));
+	//	LPBYTE lpb = new BYTE[dwSize];
+	//	if (lpb == NULL)
+	//	{
+	//		OutputDebugStringA("0");
+	//		return 0;
+	//	}
+	//	OutputDebugStringA("1\n");
+	//
+	//	if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER)) != dwSize)
+	//		OutputDebugString(TEXT("GetRawInputData does not return correct size !\n"));
+	//
+	//	// request size of the raw input buffer to dwSize
+	//	GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &dwSize,
+	//		sizeof(RAWINPUTHEADER));
+	//
+	//	// allocate buffer for input data
+	//	auto buffer = (RAWINPUT*)HeapAlloc(GetProcessHeap(), 0, dwSize);
+	//
+	//	if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, buffer, &dwSize,
+	//		sizeof(RAWINPUTHEADER)))
+	//	{
+	//		RawInputEventFunc(buffer);
+	//	}
+	//	HeapFree(GetProcessHeap(), 0, buffer);
+	//	break;
+	//}
 	}
 	return ::DefWindowProc(hWnd, msg, wParam, lParam);
 }

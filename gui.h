@@ -16,6 +16,7 @@ namespace GUI
 	inline std::vector<IDXGIAdapter*> vAdapters;
 	inline bool (*onExitFunc)();
 	inline void (*KeyDownFunc)(WPARAM key, LPARAM info, bool isPressed);
+	inline void (*RawInputEventFunc)(RAWINPUT *rawInput);
 
 	inline UINT MAX_SUPPORTED_FRAMERATE;
 	inline UINT (*VSyncFrame);

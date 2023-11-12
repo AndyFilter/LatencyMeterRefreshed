@@ -1,5 +1,7 @@
 #include "Sound_Helper.h"
 
+//#include <xaudio2.h>
+
 int Waveform_SoundHelper::StartRecording()
 {
 	// Start recording audio
@@ -291,15 +293,15 @@ UINT GetAudioDevices(_Out_ AudioDeviceInfo** devices)
 		UINT WaveformID = 0;
 		
 		int devs = waveInGetNumDevs();
-		for (int i = 0; i < devs; i++)
+		for (int j = 0; j < devs; j++)
 		{
 			MMRESULT res;
 
 			WAVEINCAPSW* caps = new WAVEINCAPSW();
-			res = waveInGetDevCapsW(i, caps, sizeof(WAVEINCAPSW));
+			res = waveInGetDevCapsW(j, caps, sizeof(WAVEINCAPSW));
 
 			if (wcsncmp(varName.pwszVal, caps->szPname, wcslen(caps->szPname)) == 0)
-				WaveformID = i;
+				WaveformID = j;
 		}
 
 		(*devices)[i] = AudioDeviceInfo(WaveformID, devCount - i - 1, !var.uiVal, varName.pwszVal, varEnumName.pwszVal);
@@ -312,4 +314,50 @@ UINT GetAudioDevices(_Out_ AudioDeviceInfo** devices)
 	pDevices->Release();
 
 	return devCount;
+}
+
+// -------------------- Output Audio --------------------
+
+#define WAV_PLAY_TIME_FRAC 64
+#define WAV_HEADER_DATA_SIZE 44100/WAV_PLAY_TIME_FRAC
+
+typedef struct WAV_HEADER {
+	/* RIFF Chunk Descriptor */
+	uint8_t RIFF[4] = { 'R', 'I', 'F', 'F' }; // RIFF Header Magic header
+	uint32_t ChunkSize = 44 + (sizeof(short) * WAV_HEADER_DATA_SIZE);            // File size
+	uint8_t WAVE[4] = { 'W', 'A', 'V', 'E' }; // WAVE Header
+	uint8_t fmt[4] = { 'f', 'm', 't', ' ' }; // FMT header
+	uint32_t Subchunk1Size = 16;           // Size of the fmt chunk
+	uint16_t AudioFormat = 1; // Audio format 1 = PCM
+	uint16_t NumOfChan = 1;   // Number of channels 1=Mono 2=Sterio
+	uint32_t SamplesPerSec = WAV_HEADER_DATA_SIZE * WAV_PLAY_TIME_FRAC;   // Sampling Frequency in Hz
+	uint32_t bytesPerSec = SamplesPerSec * 2; // bytes per second
+	uint16_t blockAlign = 2;          // 2=16-bit mono, 4=16-bit stereo
+	uint16_t bitsPerSample = 16;      // Number of bits per sample
+	/* "data" sub-chunk */
+	uint8_t Subchunk2ID[4] = { 'd', 'a', 't', 'a' }; // "data"  string
+	uint32_t Subchunk2Size = sizeof(short) * WAV_HEADER_DATA_SIZE;            // data chunk size
+	short data[WAV_HEADER_DATA_SIZE];
+};
+
+bool WinAudio_Player::Setup()
+{
+
+	header = new WAV_HEADER();
+
+	return true;
+}
+
+void WinAudio_Player::SetBuffer(int (*func)(int))
+{
+
+	for (int i = 0; i < WAV_HEADER_DATA_SIZE; i++)
+	{
+		header->data[i] = func(i);
+	}
+}
+
+void WinAudio_Player::Play()
+{
+	PlaySound((LPCSTR)header, GetModuleHandle(NULL), SND_MEMORY | SND_ASYNC);
 }

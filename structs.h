@@ -8,6 +8,29 @@ enum SerialStatus
 	Status_WaitingForPing,
 };
 
+enum InputMode
+{
+	InputMode_Normal,
+	InputMode_ModdedMouse,
+	InputMode_Internal,
+};
+inline const char* GetInputModeName(InputMode im) {
+	switch (im)
+	{
+	case InputMode_Normal:
+		return "Normal";
+		break;
+	case InputMode_ModdedMouse:
+		return "Modded Mouse";
+		break;
+	case InputMode_Internal:
+		return "Internal";
+		break;
+	default:
+		break;
+	}
+}
+
 struct LatencyReading
 {
 	unsigned int timeExternal; // in millis

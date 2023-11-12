@@ -9,7 +9,7 @@
 const int SERIAL_NO_RESPONSE_DELAY = 2000000;
 const uint64_t SERIAL_UPDATE_TIME = 1000; // Runs serial read code ever x micro seconds (max 1000)
 
-//#define BufferedSerialComm
+#define BufferedSerialComm
 
 namespace Serial
 {
