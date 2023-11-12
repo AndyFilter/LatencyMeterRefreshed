@@ -33,8 +33,8 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 ![LightsensorLatencyMeterTrans](https://user-images.githubusercontent.com/69699046/185306683-2e72f948-9c60-44e9-89dd-4bbfdb6eaaa6.png)
 
 3. Connect the Arduino (or the microcontroller of choice) to the PC via USB.
-4. Upload the [***Code***](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/main/Arduino/SystemLatencyMeter.ino) onto the board.
-5. Download the [***latest release***](github.com/AndyFilter/LatencyMeterRefreshed/releases/latest) of the program.
+4. Upload the [***Code***](Arduino/SystemLatencyMeter/SystemLatencyMeter.ino) onto the board.
+5. Download the [***latest release***](https://github.com/AndyFilter/LatencyMeterRefreshed/releases/latest) of the program.
 
 # How to use
 
@@ -47,13 +47,31 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 7. The measurements should appear on the screen!
 8. You can now **Save** them, and if that's not your first time using the program you can even **Open** the saves you exported earlier!
 
+# Internal Mode
+This mode uses a sensor connected to a 3.5mm jack microphone input instead of a microcontroller. So, you will have to connect a photoresistor to a microphone jack cable.
+Or in case of doing audio latency tests, you won't have to do nothing assuming you have a microphone with a 3.5mm jack.
+
+# FAQ
+- How to enter Full Screen mode?
+  - Alt+Enter
+- Audio Latency doesn’t work!
+  - There is a chance that your *microphone* uses inverse signal, in which case you will just need to change how the Arduino interprets the sensor data.		
+    For example change the first line in the *"loop"* function in your Arduino code to "LDRValue = 1024 - analogRead(LDR);". As you can see it takes analogue value of the sensor and re-maps it from [0, 1024] -> [1024, 0].
+
+## Notes
+Please update the program's refresh rate to for example 2x your monitor's refresh rate.<br>
+Also keep in mind that when V-Sync is OFF, the program will use 100% of the logical core it's running on.<br>
+When using *Internal Mode* I tend to get results with about 1 to 2 ms higher latency.
+
 # Modifications
 
-If you want to change for example the baudrate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontroller's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13). It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub millisecond delays** and also is reliable. All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
+If you want to change for example the baud rate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontroller's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13).
+It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub millisecond delays** and is reliable.
+All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
 
 # Questions and Issues
 
-If you have any kind of question or issue to report. DM me through Discord: **IsPossible#8212**, or create an issue on **GitHub**
+If you have any kind of question or issue to report. DM me through Discord: **IsPossible**, or create an issue on **GitHub**
 
 # Edits & Forks
 

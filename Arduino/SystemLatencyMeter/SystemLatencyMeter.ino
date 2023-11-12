@@ -26,10 +26,10 @@ void setup() {
   }
 }
 
-auto timingFunc = micros;7
+auto timingFunc = micros;
 
 void loop() {
-    LDRValue = analogRead(LDR);
+    LDRValue = analogRead(LDR); // You might need to change it to LDRValue = 1024 - analogRead(LDR), if using some odd sensor
     buttonState = (PIND >> button & B00000100 >> button); // B00000100, the button is connected at pin 2, so we want to mask only the bit 2 (third one because we start from 0) (This is just a fancy way of writing digitalRead(button))
     
     // 375203 is used, because it's a prime. It's just 3.7 seconds
