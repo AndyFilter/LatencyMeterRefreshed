@@ -1,6 +1,9 @@
 const int LDR = A0;
 const int button = 2;
 
+#define THRESHOLD_RELATIVE 1.02f  // the sensor value has to be 2% higher than the base value to count as change
+#define THRESHOLD_ABSOLUTE 3
+
 int LDRValue = 0;
 int LastLDR = 0;
 int AudioValue = 0;
@@ -38,11 +41,10 @@ void loop() {
       Started = timingFunc();
       Serial.print('l');
       isWaiting = 1;
-      LDRprobeTime = Started;
     }
 
     // Light Detection
-    if(isWaiting && (LDRValue > LastLDR*1.02) && LDRValue > LastLDR+3) 
+    if(isWaiting && (LDRValue > LastLDR*THRESHOLD_RELATIVE) && LDRValue > LastLDR+THRESHOLD_ABSOLUTE) 
     {
       Serial.print((timingFunc() - Started) / 1000);
       Serial.print('e');

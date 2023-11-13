@@ -430,7 +430,8 @@ void Serial::Close()
 		// Clear the serial port Buffer
 		PurgeComm(hPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
 #ifdef BufferedSerialComm
-		_close(fd);
+		if(fd != -1)
+			_close(fd);
 #else
 		CloseHandle(hPort);
 		CloseHandle(osReader.hEvent);

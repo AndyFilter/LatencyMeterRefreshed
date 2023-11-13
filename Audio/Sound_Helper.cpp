@@ -318,7 +318,7 @@ UINT GetAudioDevices(_Out_ AudioDeviceInfo** devices)
 
 // -------------------- Output Audio --------------------
 
-#define WAV_PLAY_TIME_FRAC 64
+#define WAV_PLAY_TIME_FRAC 32
 #define WAV_HEADER_DATA_SIZE 44100/WAV_PLAY_TIME_FRAC
 
 typedef struct WAV_HEADER {

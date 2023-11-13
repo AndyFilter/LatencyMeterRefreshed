@@ -84,10 +84,12 @@ public:
 	bool isCreated = false;
 
 	short* audioBuffer = nullptr;
-	void(*AudioCallBack)(HWAVEIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR);
+	typedef void (*waveInAudioCallBack)(HWAVEIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR);
 
-	Waveform_SoundHelper(int DeviceId = 0, int buf_size = 44100 * 2, int bufCount = 1, int sampleRate = 44100, int bitsPerSample = 16, void(*callBack)(HWAVEIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR) = nullptr, int num_ch = 1) :
-		SAMPLE_RATE(sampleRate), NUM_CHANNELS(num_ch), BITS_PER_SAMPLE(bitsPerSample), BUFFER_SIZE(buf_size), NUM_BUFFERS(bufCount), AudioCallBack(callBack), DEV_ID(DeviceId)
+	void (*AudioCallBack)(HWAVEIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR);
+
+	Waveform_SoundHelper(UINT DeviceId = 0, UINT buf_size = 44100 * 2, UINT bufCount = 1, UINT sampleRate = 44100, UINT bitsPerSample = 16, DWORD_PTR callBack = 0, int num_ch = 1) :
+		SAMPLE_RATE(sampleRate), NUM_CHANNELS(num_ch), BITS_PER_SAMPLE(bitsPerSample), BUFFER_SIZE(buf_size), NUM_BUFFERS(bufCount), AudioCallBack((waveInAudioCallBack)callBack), DEV_ID(DeviceId)
 	{
 		// Set up the wave format
 		waveFormat.wFormatTag = WAVE_FORMAT_PCM;

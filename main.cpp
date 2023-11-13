@@ -203,6 +203,9 @@ TODO:
 - Inform user of all the available keyboard shortcuts
 - Clean-up the audio code
 - Handle unpluging audio devices mid test
+- Arduino debug mode (print sensor values etc.)
+- Overall better communication with Arduino
+- A way to change the Audio Latency "beep" wave function / frequency
 
 */
 
@@ -261,6 +264,7 @@ bool AnalyzeData()
 }
 
 // Callback function called by waveInOpen
+//HWAVEIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR
 void CALLBACK waveInCallback(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2)
 {
 	switch (uMsg)
@@ -1855,7 +1859,7 @@ int OnGui()
 		}
 		else
 		{
-			if (ImGui::Button("Connect") && !Serial::availablePorts.empty())
+			if (ImGui::Button("Connect") && ((!Serial::availablePorts.empty() && !isInternalMode) || (!availableAudioDevices.empty() && isInternalMode)))
 			{
 				AttemptConnect();
 			}
@@ -2881,25 +2885,22 @@ void HandleGameMode()
 
 void AttemptConnect()
 {
-	if (!Serial::availablePorts.empty())
+	if (isInternalMode && !availableAudioDevices.empty())
 	{
-		if (isInternalMode)
-		{
-			if (curAudioDevice)
-				delete curAudioDevice;
+		if (curAudioDevice)
+			delete curAudioDevice;
 
-			curAudioDevice = new Waveform_SoundHelper(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 2, AUDIO_SAMPLE_RATE, 16, waveInCallback);
-			if (curAudioDevice && curAudioDevice->isCreated)
-				isAudioDevConnected = true;
+		curAudioDevice = new Waveform_SoundHelper(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 2u, AUDIO_SAMPLE_RATE, 16u, (DWORD_PTR)waveInCallback);
+		if (curAudioDevice && curAudioDevice->isCreated)
+			isAudioDevConnected = true;
 
-			isAudioDevConnected = SetupAudioDevice();
+		isAudioDevConnected = SetupAudioDevice();
 
-			if (isAudioDevConnected)
-				SetAudioEnchantments(false, availableAudioDevices[selectedPort].WASAPI_id);
-		}
-		else
-			Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
+		if (isAudioDevConnected)
+			SetAudioEnchantments(false, availableAudioDevices[selectedPort].WASAPI_id);
 	}
+	else if(!Serial::availablePorts.empty())
+		Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
 }
 
 void AttemptDisconnect()
@@ -3214,9 +3215,9 @@ int main(int argc, char** argv)
 
 	// Setup Audio buffer (with noise)
 	audioPlayer.Setup();
-	//audioPlayer.SetBuffer([](int i) { return (rand() * 2 - RAND_MAX) % RAND_MAX; });
+	audioPlayer.SetBuffer([](int i) { return ((rand() * 2 - RAND_MAX) % RAND_MAX) * 10; });
 	//audioPlayer.SetBuffer([](int i) { return rand() % SHRT_MAX; });
-	audioPlayer.SetBuffer([](int i) { return (int)(sinf(i/4.f) * RAND_MAX); });
+	//audioPlayer.SetBuffer([](int i) { return (int)(sinf(i/4.f) * RAND_MAX); });
 
 	//BOOL fScreen;
 	//IDXGIOutput* output;
