@@ -1,12 +1,15 @@
 #include <string>
-#include <Windows.h>
 #include <ostream>
 #include <iostream>
 #include "serial.h"
 
-// Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
-constexpr DWORD BAUD_RATE = 19200;
-const byte BYTES_TO_READ = 8; // This value is arbitrary, but the normal data send consists of "e" + {1-4 digits}. Which in total makes 5 bytes, add 3 just to be sure it all gets read.
+const unsigned char BYTES_TO_READ = 8; // This value is arbitrary, but the normal data send consists of "e" + {1-4 digits}.
+                                    // Which in total makes 5 bytes, add 3 just to be sure it all gets read.
+
+#ifdef _WIN32
+// Can be changed, but this value is fast enough not to introduce any significant latency and pretty reliable
+constexpr unsigned int BAUD_RATE = 19200;
+
 
 //HANDLE hPort;
 DCB serialParams;
@@ -462,3 +465,108 @@ uint64_t micros1()
 
 	return ElapsedMicroseconds.QuadPart;
 }
+
+#else
+#include <cstring>
+#include <termios.h> // Contains POSIX terminal control definitions
+#include <csignal>
+
+namespace fs = std::filesystem;
+
+#define BAUD_RATE B19200
+
+bool can_read = true;
+
+void ReadIO(int serialPort, void (*OnCharReceivedFunc)(char c)) {
+    while(true) {
+        unsigned char buf[8];
+        if(!can_read)
+            break;
+
+        if(int n = read(serialPort, buf, BYTES_TO_READ); n > 0) {
+            for(int i = 0; i < n; i++) {
+                OnCharReceivedFunc(buf[i]);
+            }
+        }
+
+        //usleep(100);
+    }
+}
+
+bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c)) {
+    std::string dev_name = std::string("/dev/tty") + szPortName;
+    isConnected = false;
+
+    hPort = open(dev_name.c_str(), O_RDWR);
+
+    // Check for errors
+    if (hPort < 0) {
+        printf("Error %i in open: %s\n", errno, strerror(errno));
+        printf("You might want to run \"sudo adduser $USER tty\" and reboot your machine\n");
+        return false;
+        // Please use "sudo adduser $USER tty" if you get this error.
+        // (You must restart before these group changes come into effect!)
+    }
+
+    termios tty{0};
+    tty.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
+    tty.c_cflag &= ~CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
+    tty.c_cflag |= CS8; // 8 bits per byte (most common)
+    tty.c_cflag &= ~CRTSCTS; // Disable RTS/CTS hardware flow control (most common)
+    tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
+    tty.c_lflag &= ~ICANON;
+    tty.c_lflag &= ~ECHO; // Disable echo
+    tty.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
+    tty.c_cc[VTIME] = 100;  // Wait 10 seconds for the data. We pretty much want to block as long as we can
+                            // because it's a separate thread. This reduces CPU usage by about ~50%
+    tty.c_cc[VMIN] = 0;
+
+    cfsetispeed(&tty, BAUD_RATE);
+    cfsetospeed(&tty, BAUD_RATE);
+
+    // Save tty settings, also checking for error
+    if (tcsetattr(hPort, TCSANOW, &tty) != 0) {
+        printf("Error %i in tcsetattr: %s\n", errno, strerror(errno));
+        return false;
+    }
+
+    ioThread = std::thread(ReadIO, hPort, OnCharReceivedFunc);
+
+    isConnected = true;
+    return true;
+};
+
+//void HandleInput();
+void Serial::Close() {
+    if(!isConnected)
+        return;
+    ioThread.detach();
+    isConnected = false;
+    close(hPort);
+};
+
+void Serial::FindAvailableSerialPorts() {
+    availablePorts.clear();
+    std::string path = "/dev";
+    for (const auto & entry : fs::directory_iterator(path)) {
+        if(entry.path().filename().string().find("ttyACM") != std::string::npos) {
+            availablePorts.push_back(entry.path().filename().string().substr(3, -1));
+#ifdef _DEBUG
+            std::cout << entry.path() << std::endl;
+#endif
+        }
+    }
+};
+
+bool Serial::Write(const char* c, size_t size) {
+    can_read = false;
+    usleep(100);
+    auto written = write(hPort, c, size);
+    can_read = true;
+
+    return written == size;
+};
+
+
+#endif

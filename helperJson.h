@@ -4,6 +4,9 @@
 #include "structs.h"
 #include "constants.h"
 
+#ifndef _MAX_PATH
+#define _MAX_PATH MAX_PATH
+#endif
 
 namespace HelperJson
 {
@@ -13,14 +16,14 @@ namespace HelperJson
 
 	bool GetUserData(UserData &userData);
 
-	void SaveLatencyTests(TabInfo tests, char path[_MAX_PATH]);
+	void SaveLatencyTests(TabInfo& tests, char path[_MAX_PATH]);
 
-	size_t GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH]);
+	size_t GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH], int& ver);
 
-	void SaveLatencyTestsPack(std::vector<TabInfo> tabs, char path[_MAX_PATH]);
+	void SaveLatencyTestsPack(std::vector<TabInfo> &tabs, char path[_MAX_PATH]);
 
 	void UserConfigLocationChanged(bool isNewLocal);
 
-	std::wstring GetAppDataUserConfingPath();
-	std::wstring GetLocalUserConfingPath();
+    OS_SPEC_PATH_STR GetAppDataUserConfigPath();
+    OS_SPEC_PATH_STR GetLocalUserConfingPath();
 }

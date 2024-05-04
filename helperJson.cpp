@@ -3,18 +3,27 @@
 
 #include "helperJson.h"
 #include "External/nlohmann/json.hpp"
+#include "constants.h"
+#include "helper.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <initguid.h>
 #include <KnownFolders.h>
 #include <ShlObj.h>
-#include <wchar.h>
+#else
+#include <csignal>
+#endif
+
+//#include <cwchar>
 
 using json = nlohmann::json;
 
-const wchar_t* configFileName{ L"UserData.json" };
-const char* savesPath{ "Saves/" };
-const wchar_t* appDataFolderName{ L"\\LatencyMeterRefreshed\\" };
+//const wchar_t* w_configFileName{ L"UserData.json" };
+const OS_SPEC_PATH_CHAR* configFileName{OS_SPEC_PATH("UserData.json") };
+const OS_SPEC_PATH_CHAR* savesPath{ OS_SPEC_PATH("Saves/") };
+const OS_SPEC_PATH_CHAR* appDataFolderName{ OS_SPEC_PATH("\\LatencyMeterRefreshed\\") };
+const OS_SPEC_PATH_CHAR* homeDataFolderName{ OS_SPEC_PATH("/.LatencyMeterRefreshed/") };
 
 int LatencyIndexSort(const void* a, const void* b)
 {
@@ -56,7 +65,6 @@ void to_json(json& j, const MiscData& miscData)
 {
 	j = json
 	{
-
 		{"localUserData", miscData.localUserData},
 	};
 }
@@ -88,6 +96,7 @@ void to_json(json& j, TabInfo data)
 {
 	j = json
 	{
+        {"version", json_version},
 		{"measurements", data.latencyData.measurements },
 		{"note", data.latencyData.note },
 		{"name", data.name },
@@ -162,25 +171,37 @@ void from_json(const json& j, LatencyReading& reading)
 void from_json(const json& j, TabInfo& reading)
 {
 	j.at("measurements").get_to(reading.latencyData.measurements);
+#ifdef _WIN32
 	strcpy_s(reading.latencyData.note, j.value("note", "").c_str());
 	strcpy_s(reading.name, j.value("name", "").c_str());
+#else
+    strcpy(reading.latencyData.note, j.value("note", "").c_str());
+    strcpy(reading.name, j.value("name", "").c_str());
+#endif
 }
 
-void from_json(const json& j, std::vector<TabInfo> &data)
+void from_json(const json& j, std::vector<TabInfo> &data, int& version)
 {
+    // Try to get the version
+    if(!j.contains("version"))
+        version = 0;
+    else
+        j.at("version").get_to(version);
+
 	for (auto& elem : j)
 	{
 		data.push_back(elem.get<TabInfo>());
 	}
 }
 
-std::wstring HelperJson::GetAppDataUserConfingPath()
+OS_SPEC_PATH_STR HelperJson::GetAppDataUserConfigPath()
 {
+#ifdef _WIN32
 	PWSTR appDataPath = NULL;
 	if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &appDataPath) == S_OK)
 	{
-		std::wstring filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(configFileName);
-		filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+		std::wstring filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(w_configFileName);
+		filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(w_configFileName);
 
 		std::ifstream configFile(filePath);
 
@@ -189,24 +210,51 @@ std::wstring HelperJson::GetAppDataUserConfingPath()
 	}
 
 	return L"";
+
+#else
+    OS_SPEC_PATH_STR home_dir = getenv("HOME");
+    home_dir += homeDataFolderName;
+    std::filesystem::create_directories(home_dir);
+    auto filepath = home_dir + configFileName;
+    std::ifstream file(filepath);
+
+    file.close();
+
+    return filepath;
+
+#endif
 }
 
-std::wstring HelperJson::GetLocalUserConfingPath()
+OS_SPEC_PATH_STR HelperJson::GetLocalUserConfingPath()
 {
+#ifdef _WIN32
 	wchar_t localPath[_MAX_PATH];
 	GetModuleFileNameW(NULL, localPath, _MAX_PATH);
 
-	std::wstring filePath = std::wstring(localPath) + std::wstring(configFileName);
-	filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+	std::wstring filePath = std::wstring(localPath) + std::wstring(w_configFileName);
+	filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(w_configFileName);
 
 	std::ifstream configFile(filePath);
 
 	configFile.close();
 	return filePath;
+#else
+    OS_SPEC_PATH_CHAR localPath[_MAX_PATH];
+    getcwd(localPath, _MAX_PATH);
+
+    OS_SPEC_PATH_STR filePath = OS_SPEC_PATH_STR(localPath) + OS_SPEC_PATH_STR(configFileName);
+    filePath = filePath.substr(0, filePath.find_last_of(OS_SPEC_PATH("\\/")) + 1) + OS_SPEC_PATH_STR(configFileName);
+
+    std::ifstream configFile(filePath);
+
+    configFile.close();
+    return filePath;
+#endif
 }
 
-std::wstring GetUserDataPath(bool islocal)
+OS_SPEC_PATH_STR GetUserDataPath(bool islocal)
 {
+#ifdef _WIN32
 	std::ofstream configFile;
 	std::wstring filePath;
 	if (islocal)
@@ -214,8 +262,8 @@ std::wstring GetUserDataPath(bool islocal)
 		wchar_t localPath[_MAX_PATH];
 		GetModuleFileNameW(NULL, localPath, _MAX_PATH);
 
-		filePath = std::wstring(localPath) + std::wstring(configFileName);
-		filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+		filePath = std::wstring(localPath) + std::wstring(w_configFileName);
+		filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(w_configFileName);
 
 		configFile = std::ofstream(filePath);
 	}
@@ -225,8 +273,8 @@ std::wstring GetUserDataPath(bool islocal)
 		PWSTR appDataPath = NULL;
 		if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &appDataPath) == S_OK)
 		{
-			filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(configFileName);
-			filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+			filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(w_configFileName);
+			filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(w_configFileName);
 
 			std::filesystem::create_directories(std::wstring(appDataPath) + std::wstring(appDataFolderName));
 
@@ -243,10 +291,34 @@ std::wstring GetUserDataPath(bool islocal)
 	configFile.close();
 
 	return filePath;
+#endif
+    std::ofstream configFile;
+    OS_SPEC_PATH_STR filePath;
+    if (islocal)
+    {
+        filePath = HelperJson::GetLocalUserConfingPath();
+        configFile = std::ofstream(filePath);
+    }
+    else
+    {
+        filePath = HelperJson::GetAppDataUserConfigPath();
+        configFile = std::ofstream(filePath);
+    }
+
+    if (!configFile.good())
+    {
+        configFile.close();
+        return OS_SPEC_PATH("");
+    }
+
+    configFile.close();
+
+    return filePath;
 }
 
 void HelperJson::SaveUserData(UserData& userData)
 {
+#ifdef _WIN32
 	std::wstring filePath = GetUserDataPath(userData.misc.localUserData);
 
 	if (filePath.empty())
@@ -259,6 +331,20 @@ void HelperJson::SaveUserData(UserData& userData)
 	configFile << j.dump();
 
 	configFile.close();
+#else
+    OS_SPEC_PATH_STR filePath = GetUserDataPath(userData.misc.localUserData);
+
+    if (filePath.empty())
+        return;
+
+    std::ofstream configFile(filePath);
+
+    json j = userData;
+
+    configFile << j.dump();
+
+    configFile.close();
+#endif
 }
 
 void HelperJson::SaveUserStyle(StyleData& styleData)
@@ -273,13 +359,14 @@ void HelperJson::SaveUserStyle(StyleData& styleData)
 
 bool HelperJson::GetUserData(UserData& userData)
 {
+#ifdef _WIN32
 	std::wstring filePath;
 
 	wchar_t localPath[_MAX_PATH];
 	GetModuleFileNameW(NULL, localPath, _MAX_PATH);
 
-	filePath = std::wstring(localPath) + std::wstring(configFileName);
-	filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+	filePath = std::wstring(localPath) + std::wstring(w_configFileName);
+	filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(w_configFileName);
 
 	std::ifstream configFile(filePath);
 
@@ -291,8 +378,8 @@ bool HelperJson::GetUserData(UserData& userData)
 		if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &appDataPath) == S_OK)
 		{
 
-			filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(configFileName);
-			filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(configFileName);
+			filePath = std::wstring(appDataPath) + std::wstring(appDataFolderName) + std::wstring(w_configFileName);
+			filePath = filePath.substr(0, filePath.find_last_of(L"\\/") + 1) + std::wstring(w_configFileName);
 
 			configFile = std::ifstream(filePath);
 
@@ -310,9 +397,32 @@ bool HelperJson::GetUserData(UserData& userData)
 	from_json(data, userData);
 	configFile.close();
 	return true;
+#else
+    OS_SPEC_PATH_STR filePath = HelperJson::GetLocalUserConfingPath();
+
+    std::ifstream configFile(filePath);
+
+    if (!configFile.good())
+    {
+        configFile.close();
+        filePath = HelperJson::GetAppDataUserConfigPath();
+        configFile = std::ifstream(filePath);
+
+        if (!configFile.good())
+        {
+            configFile.close();
+            return false;
+        }
+    }
+
+    json data = json::parse(configFile);
+    from_json(data, userData);
+    configFile.close();
+    return true;
+#endif
 }
 
-void HelperJson::SaveLatencyTests(TabInfo tests, char path[_MAX_PATH])
+void HelperJson::SaveLatencyTests(TabInfo& tests, char path[_MAX_PATH])
 {
 	//std::string fileName = savesPath + std::string(name) + std::string(".json");
 
@@ -332,7 +442,7 @@ void HelperJson::SaveLatencyTests(TabInfo tests, char path[_MAX_PATH])
 	saveFile.close();
 }
 
-size_t HelperJson::GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH])
+size_t HelperJson::GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH], int& ver)
 {
 	//std::string fileName = savesPath + std::string(name) + std::string(".json");
 	std::ifstream saveFile(path);
@@ -344,22 +454,33 @@ size_t HelperJson::GetLatencyTests(std::vector<TabInfo> &tests, const char path[
 
 	json j = json::parse(saveFile);
 	if (j.is_array()) {
-		from_json(j, tests);
+		from_json(j, tests, ver);
 		elements = j.size();
 	}
 	else {
 		TabInfo info;
+        if(!j.contains("version"))
+            ver = 0;
+        else
+            j.at("version").get_to(ver);
 		from_json(j, info);
 		tests.push_back(info);
 		elements = 1;
 	}
+
+    if(ver < 5) {
+        for(int i = tests.size() - elements; i < tests.size(); i++) {
+            for (auto &item: tests[i].latencyData.measurements)
+                item.timeExternal *= helper::External2Micros;
+        }
+    }
 
 	saveFile.close();
 
 	return elements;
 }
 
-void HelperJson::SaveLatencyTestsPack(std::vector<TabInfo> tabs, char path[_MAX_PATH])
+void HelperJson::SaveLatencyTestsPack(std::vector<TabInfo> &tabs, char path[_MAX_PATH])
 {
 	for (auto& tab : tabs) {
 		if (tab.latencyData.measurements.size() > 0)
@@ -380,8 +501,9 @@ void HelperJson::SaveLatencyTestsPack(std::vector<TabInfo> tabs, char path[_MAX_
 
 void HelperJson::UserConfigLocationChanged(bool isNewLocal)
 {
-	std::wstring appDataPath = GetAppDataUserConfingPath();
-	std::wstring localPath = GetLocalUserConfingPath();
+//#ifdef _WIN32
+	OS_SPEC_PATH_STR appDataPath = GetAppDataUserConfigPath();
+    OS_SPEC_PATH_STR localPath = GetLocalUserConfingPath();
 
 	bool appDataPathExists = false;
 	bool localPathExists = false;
@@ -413,4 +535,5 @@ void HelperJson::UserConfigLocationChanged(bool isNewLocal)
 		std::filesystem::copy(localPath, appDataPath, std::filesystem::copy_options::overwrite_existing);
 		std::filesystem::remove(localPath);
 	}
+//#endif
 }

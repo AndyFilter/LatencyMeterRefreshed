@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 enum SerialStatus
 {
 	Status_Idle,
@@ -92,8 +94,8 @@ struct StyleData
 
 struct PerformanceData
 {
-	bool lockGuiFps;
-	int guiLockedFps;
+	bool lockGuiFps = true;
+	int guiLockedFps = 60;
 
 	bool showPlots;
 
@@ -113,3 +115,14 @@ struct UserData
 	PerformanceData performance;
 	MiscData misc;
 };
+
+enum JSON_HANDLE_INFO {
+    JSON_HANDLE_INFO_SUCCESS = 0,
+    JSON_HANDLE_INFO_ERROR = 1,
+    JSON_HANDLE_INFO_BAD_VERSION = (1 << 1),
+};
+
+inline JSON_HANDLE_INFO operator |(JSON_HANDLE_INFO a, JSON_HANDLE_INFO b) { return static_cast<JSON_HANDLE_INFO>(a + b); }
+inline JSON_HANDLE_INFO operator &(JSON_HANDLE_INFO a, JSON_HANDLE_INFO b) { return static_cast<JSON_HANDLE_INFO>(a * b); }
+inline JSON_HANDLE_INFO& operator |=(JSON_HANDLE_INFO& a, JSON_HANDLE_INFO b) { return a = a | b; }
+inline JSON_HANDLE_INFO& operator &=(JSON_HANDLE_INFO& a, JSON_HANDLE_INFO b) { return a = a & b; }

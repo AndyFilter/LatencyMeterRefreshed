@@ -1,9 +1,11 @@
+#ifdef _WIN32
 #include <Windows.h>
+#include <tchar.h>
+#endif
 #include <iostream>
 #include <chrono>
 #include <fstream>
-#include <string.h>
-#include <tchar.h>
+#include <cstring>
 
 #include "serial.h"
 #include "External/ImGui/imgui.h"
@@ -15,9 +17,16 @@
 #include "Audio/Sound_Helper.h"
 #include "External/ImGui/imgui_extensions.h"
 #include <algorithm>
+#include <unistd.h>
+#include "helper.h"
+
+using namespace helper;
+
 
 // idk why I didn't just expose it in GUI.h...
+#ifdef _WIN32
 HWND hwnd;
+#endif
 
 ImVec2 detectionRectSize{ 0, 200 };
 
@@ -26,74 +35,9 @@ uint64_t lastFrame = 0;
 
 // Frametime in microseconds
 float averageFrametime = 0;
-const unsigned int AVERAGE_FRAME_COUNT = 10000;
+const unsigned int AVERAGE_FRAME_COUNT = 1000;
 uint64_t frames[AVERAGE_FRAME_COUNT]{ 0 };
 unsigned long long totalFrames = 0;
-
-// ---- Styling ---- (Don't ask me why I didn't create structures for these things earlier)
-
-const int styleColorNum = 2;
-const unsigned int colorSize = 16;
-
-ImFont* boldFont;
-
-//float accentColor[4];
-//float accentBrightness = 0.1f;
-//
-//float fontColor[4];
-//float fontBrightness = 0.1f;
-//
-//int selectedFont = 0;
-//float fontSize = 1.f;
-
-
-//float internalPlotColor[4] {0.1f, 0.8f, 0.2f, 1.f};
-//float externalPlotColor[4] { 0.3f, 0.3f, 0.9f, 1.f };
-//float inputPlotColor[4] { 0.8f, 0.1f, 0.2f, 1.f };
-//
-//
-//float accentColorBak[4];
-//float accentBrightnessBak = 0.1f;
-//
-//float fontColorBak[4];
-//float fontBrightnessBak = 0.1f;
-//
-//int selectedFontBak = 0;
-//float fontSizeBak = 1.f;
-//float internalPlotColorBak[4]{ 0.1f, 0.8f, 0.2f, 1.f };
-//float externalPlotColorBak[4]{ 0.3f, 0.3f, 0.9f, 1.f };
-//float inputPlotColorBak[4]{ 0.8f, 0.1f, 0.2f, 1.f };
-
-
-const char* fonts[4]{ "Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console" };
-const int fontIndex[4]{ 0, 2, 4, 5 };
-
-// --------
-
-
-// ---- Performance ----
-
-int guiLockedFps;
-bool lockGuiFps = true;
-
-bool showPlots = true;
-
-
-int guiLockedFpsBak;
-bool lockGuiFpsBak = true;
-
-bool showPlotsBak;
-
-// --------
-
-
-// ---- User Data ----
-
-UserData currentUserData{};
-
-UserData backupUserData{};
-
-// --------
 
 
 // ---- Functionality ----
@@ -104,28 +48,32 @@ int selectedPort = 0;
 int lastSelectedPort = 0;
 
 InputMode selectedMode = InputMode_Normal;
-//std::vector<LatencyReading> latencyTests;
-//
-//LatencyStats latencyStats;
-//
-//char note[1000];
 
-std::vector<cAudioDeviceInfo> availableAudioDevices;
-Waveform_SoundHelper* curAudioDevice;
+uint64_t lastInternalTest = 0;
 bool isAudioDevConnected = false;
+std::vector<cAudioDeviceInfo> availableAudioDevices;
+#ifdef _WIN32
+Waveform_SoundHelper* curAudioDevice;
+WinAudio_Player audioPlayer;
 const UINT AUDIO_SAMPLE_RATE = 10000;//44100U;
 const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
 const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
 const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
 const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
-uint64_t lastInternalTest = 0;
-
-WinAudio_Player audioPlayer;
+#else
+#define AUDIO_DATA_FORMAT int
+ALSA_AudioDevice<AUDIO_DATA_FORMAT>* curAudioDevice;
+UINT AUDIO_SAMPLE_RATE = 44100;//44100;//44100U;
+UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 4;
+const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2; // On Unix this isn't really a "buffer", but just a delay
+UINT AUDIO_BUFFER_SIZE = TEST_AUDIO_BUFFER_SIZE;
+const UINT INTERNAL_TEST_DELAY = 995387; // in microseconds
+#endif
 
 std::chrono::steady_clock::time_point moddedMouseTimeClicked;
 bool wasModdedMouseTimeUpdated = false;
 
-std::vector<TabInfo> tabsInfo{};
+
 // --------
 
 
@@ -135,11 +83,6 @@ std::vector<TabInfo> tabsInfo{};
 bool isExiting = false;
 std::vector<int> unsavedTabs;
 
-static ImGuiTableSortSpecs* sortSpec;
-
-bool isFullscreen = false;
-bool fullscreenModeOpenPopup = false;
-bool fullscreenModeClosePopup = false;
 
 bool isGameMode = false;
 bool isInternalMode = false;
@@ -147,23 +90,19 @@ bool isAudioMode = false;
 bool wasLMB_Pressed = false;
 bool wasMouseClickSent = false;
 
-int selectedTab = 0;
-
-bool wasItemAddedGUI = false;
+bool wasMeasurementAddedGUI = false;
 
 bool shouldRunConfiguration = false;
 
 float leftTabWidth = 400;
 
-// Forward declaration
+// Forward declarations
 void GotSerialChar(char c);
-bool SaveAsMeasurements();
-bool SavePackAsMeasurements();
 void ClearData();
 void DiscoverAudioDevices();
 void StartInternalTest();
 void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime);
-bool CanDoInternalTest();
+bool CanDoInternalTest(uint64_t time = 0);
 bool SetupAudioDevice();
 void AttemptConnect();
 void AttemptDisconnect();
@@ -188,7 +127,7 @@ TODO:
 + Unsaved tabs alert
 - Custom Fonts (?)
 + Multiple tabs for measurements
-+ Move IO to a separate thread (ONLY if it doens't introduce additional latency)
++ Move IO to a separate thread (ONLY if it doesn't introduce additional latency)
 + Fix measurement index when removing (or don't, I don' know)
 + Reset status on disconnect and clear
 + Auto scroll measurements on new added
@@ -202,7 +141,7 @@ TODO:
 - See what can be done about the inefficient Serial Comm code
 - Inform user of all the available keyboard shortcuts
 - Clean-up the audio code
-- Handle unpluging audio devices mid test
+- Handle unplugging audio devices mid test
 - Arduino debug mode (print sensor values etc.)
 - Overall better communication with Arduino
 - A way to change the Audio Latency "beep" wave function / frequency
@@ -211,6 +150,7 @@ TODO:
 
 bool isSettingOpen = false;
 
+#ifdef _WIN32
 bool AnalyzeData()
 {
 	UINT iter_offset = 00;
@@ -227,7 +167,7 @@ bool AnalyzeData()
 	for (int i = iter_offset; i < TEST_AUDIO_BUFFER_SIZE; i++)
 	{
 		if (i - iter_offset < AvgCount) {
-			baseAvg += curAudioDevice->audioBuffer[i];
+			baseAvg += curAudioDevice->recordBuffer[i];
 			continue;
 		}
 		else if (i - iter_offset == AvgCount) {
@@ -237,7 +177,7 @@ bool AnalyzeData()
 			//	isBufferRemainder = REMAINDER_COUNTDOWN_VALUE;
 		}
 
-		//if (isBufferRemainder && abs(curAudioDevice->audioBuffer[i]) < BUFFER_THRESHOLD) {
+		//if (isBufferRemainder && abs(curAudioDevice->recordBuffer[i]) < BUFFER_THRESHOLD) {
 		//	isBufferRemainder--;
 
 		//	if (!isBufferRemainder) {
@@ -247,17 +187,17 @@ bool AnalyzeData()
 		//	continue;
 		//}
 
-		short sample = abs(curAudioDevice->audioBuffer[i] - baseAvg);
+		short sample = abs(curAudioDevice->recordBuffer[i] - baseAvg);
 
 		if (sample >= BUFFER_THRESHOLD / (isAudioMode ? 4 : 1))
 		{
-			float millisElapsed = (1000000 * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
+			float microsElapsed = (1000000 * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
 #ifdef _DEBUG
-			std::cout << "latency: " << millisElapsed << ", base val: " << baseAvg << std::endl;
+			std::cout << "latency: " << microsElapsed << ", base val: " << baseAvg << std::endl;
 #endif // _DEBUG
-			if (baseAvg > BUFFER_MAX_VALUE * 0.9f || millisElapsed <= 1)
+			if (baseAvg > BUFFER_MAX_VALUE * 0.9f || microsElapsed <= 1000)
 				return false;
-			AddMeasurement(millisElapsed, 0, 0);
+			AddMeasurement(microsElapsed, 0, 0);
 			return true;
 		}
 	}
@@ -308,662 +248,58 @@ void CALLBACK waveInCallback(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, DWORD
 	}
 }
 
+#else
 
-static LARGE_INTEGER StartingTime{ 0 };
+// Same function as on Windows
+bool AnalyzeData() {
+    UINT iter_offset = 0;
+    const size_t BUFFER_MAX_VALUE = (1ull << (sizeof(AUDIO_DATA_FORMAT) * 8)) / 2 - 1;
+    const size_t BUFFER_THRESHOLD = BUFFER_MAX_VALUE / 5;
 
-uint64_t micros()
-{
-	//auto timeNow = std::chrono::high_resolution_clock::now();
-	//uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(timeNow.time_since_epoch()).count();
-	//static const uint64_t start{ us };
-	//return us - start;
+    //serialStatus = Status_Idle;
 
-	//FILETIME ft;
-	//GetSystemTimeAsFileTime(&ft);
-	//ULARGE_INTEGER li;
-	//li.LowPart = ft.dwLowDateTime;
-	//li.HighPart = ft.dwHighDateTime;
-	//unsigned long long valueAsHns = li.QuadPart;
-	//unsigned long long valueAsUs = valueAsHns / 10;
+    int baseAvg = 0;
+    const short AvgCount = 10;
+    //const int REMAINDER_COUNTDOWN_VALUE = 10;
+    //int isBufferRemainder = 0; // Value at which last measurement ended gets carried to the current buffer, we have to deal with it.
 
-	//return valueAsUs;
+    for (int i = iter_offset; i < TEST_AUDIO_BUFFER_SIZE; i+=2)
+    {
+        // try to account for the base value in the buffer
+        if (i - iter_offset < AvgCount) {
+            baseAvg += curAudioDevice->recordBuffer[i];
+            continue;
+        }
+        else if (i - iter_offset == AvgCount) {
+            baseAvg /= AvgCount;
+            baseAvg = abs(baseAvg);
 
-
-	// QueryPerformance method is about 15-25% faster than std::chrono implementation of the same code
-
-	LARGE_INTEGER EndingTime, ElapsedMicroseconds;
-	LARGE_INTEGER Frequency;
-
-	QueryPerformanceFrequency(&Frequency);
-
-	// Activity to be timed
-
-	QueryPerformanceCounter(&EndingTime);
-	ElapsedMicroseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
+            if(baseAvg > BUFFER_MAX_VALUE / 3) {
+                // BAD DATA! Possibly bring the volume down to fix it
+                return false;
+            }
+        }
 
 
-	//
-	// We now have the elapsed number of ticks, along with the
-	// number of ticks-per-second. We use these values
-	// to convert to the number of elapsed microseconds.
-	// To guard against loss-of-precision, we convert
-	// to microseconds *before* dividing by ticks-per-second.
-	//
+        AUDIO_DATA_FORMAT sample = abs(curAudioDevice->recordBuffer[i] - baseAvg);
 
-	ElapsedMicroseconds.QuadPart *= 1000000;
-	ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
-
-	return ElapsedMicroseconds.QuadPart;
+        if (sample >= BUFFER_THRESHOLD / (isAudioMode ? 4 : 1))
+        {
+            float microsElapsed = (1000000 * (i / 2 - iter_offset)) / AUDIO_SAMPLE_RATE;
+#ifdef _DEBUG
+            std::cout << "latency: " << microsElapsed << ", base val: " << baseAvg << ", at sample: " << i << std::endl;
+#endif // _DEBUG
+            // Could add a popup to notify user after a couple of failed attempts that smth is prolly wrong...
+            if (baseAvg > BUFFER_MAX_VALUE * 0.9f || microsElapsed <= 1000)
+                return false;
+            AddMeasurement(microsElapsed, 0, 0);
+            return true;
+        }
+    }
+    return false;
 }
 
-void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum])
-{
-	auto& style = ImGui::GetStyle();
-	for (int i = 0; i < styleColorNum; i++)
-	{
-		float brightness = brightnesses[i];
-
-		auto baseColor = ImVec4(*(ImVec4*)colors[i]);
-		auto darkerBase = ImVec4(*(ImVec4*)&baseColor) * (1 - brightness);
-		auto darkestBase = ImVec4(*(ImVec4*)&baseColor) * (1 - brightness * 2);
-
-		// Alpha has to be set separatly, because it also gets multiplied times brightness.
-		auto alphaBase = baseColor.w;
-		baseColor.w = alphaBase;
-		darkerBase.w = alphaBase;
-		darkestBase.w = alphaBase;
-
-		switch (i)
-		{
-		case 0:
-			style.Colors[ImGuiCol_Header] = baseColor;
-			style.Colors[ImGuiCol_HeaderHovered] = darkerBase;
-			style.Colors[ImGuiCol_HeaderActive] = darkestBase;
-
-			style.Colors[ImGuiCol_TabHovered] = baseColor;
-			style.Colors[ImGuiCol_TabActive] = darkerBase;
-			style.Colors[ImGuiCol_Tab] = darkestBase;
-
-			style.Colors[ImGuiCol_CheckMark] = baseColor;
-
-			style.Colors[ImGuiCol_PlotLines] = style.Colors[ImGuiCol_PlotHistogram] = darkerBase;
-			style.Colors[ImGuiCol_PlotLinesHovered] = style.Colors[ImGuiCol_PlotHistogramHovered] = baseColor;
-			break;
-		case 1:
-			style.Colors[ImGuiCol_Text] = baseColor;
-			style.Colors[ImGuiCol_TextDisabled] = darkerBase;
-			break;
-		}
-	}
-}
-
-void RevertConfig()
-{
-	currentUserData = backupUserData;
-
-	//std::copy(accentColorBak, accentColorBak + 4, accentColor);
-	//std::copy(fontColorBak, fontColorBak + 4, fontColor);
-
-	//accentBrightness = accentBrightnessBak;
-	//fontBrightness = fontBrightnessBak;
-
-	//fontSize = fontSizeBak;
-	//selectedFont = selectedFontBak;
-	//boldFont = boldFontBak;
-
-	//lockGuiFps = lockGuiFpsBak;
-	//guiLockedFps = guiLockedFpsBak;
-
-	//showPlots = showPlotsBak;
-
-	ImGuiIO& io = ImGui::GetIO();
-
-	for (int i = 0; i < io.Fonts->Fonts.Size; i++)
-	{
-		io.Fonts->Fonts[i]->Scale = currentUserData.style.fontSize;
-	}
-	io.FontDefault = io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]];
-}
-
-int LatencyCompare(const void* a, const void* b)
-{
-	LatencyReading* _a = (LatencyReading*)a;
-	LatencyReading* _b = (LatencyReading*)b;
-
-	int delta = 0;
-
-	switch (sortSpec->Specs->ColumnUserID)
-	{
-	case 0: delta = _a->index - _b->index;					break;
-	case 1: delta = _a->timeExternal - _b->timeExternal;	break;
-	case 2: delta = _a->timeInternal - _b->timeInternal;	break;
-	case 3: delta = _a->timePing - _b->timePing;			break;
-	case 4: delta = 0;										break;
-	}
-
-	if (sortSpec->Specs->SortDirection == ImGuiSortDirection_Ascending)
-	{
-		return delta > 0 ? +1 : -1;
-	}
-	else
-	{
-		return delta > 0 ? -1 : +1;
-	}
-}
-
-// Does the calcualtions and copying for you
-void SaveCurrentUserConfig()
-{
-	if (backupUserData.misc.localUserData != currentUserData.misc.localUserData)
-		HelperJson::UserConfigLocationChanged(currentUserData.misc.localUserData);
-
-	backupUserData = currentUserData;
-
-	HelperJson::SaveUserData(currentUserData);
-	//delete userData;
-}
-
-bool LoadCurrentUserConfig()
-{
-	//UserData userData;
-	if (!HelperJson::GetUserData(currentUserData))
-		return false;
-
-	return true;
-}
-
-void ApplyCurrentStyle()
-{
-	auto& style = ImGui::GetStyle();
-
-	float brightnesses[styleColorNum]{ currentUserData.style.mainColorBrightness, currentUserData.style.fontColorBrightness };
-	float* colors[styleColorNum]{ currentUserData.style.mainColor, currentUserData.style.fontColor };
-
-	for (int i = 0; i < styleColorNum; i++)
-	{
-		float brightness = brightnesses[i];
-
-		auto baseColor = ImVec4(*(ImVec4*)colors[i]);
-		auto darkerBase = ImVec4(*(ImVec4*)&baseColor) * (1 - brightness);
-		auto darkestBase = ImVec4(*(ImVec4*)&baseColor) * (1 - brightness * 2);
-
-		// Alpha has to be set separatly, because it also gets multiplied times brightness.
-		auto alphaBase = baseColor.w;
-		baseColor.w = alphaBase;
-		darkerBase.w = alphaBase;
-		darkestBase.w = alphaBase;
-
-		switch (i)
-		{
-		case 0:
-			style.Colors[ImGuiCol_Header] = baseColor;
-			style.Colors[ImGuiCol_HeaderHovered] = darkerBase;
-			style.Colors[ImGuiCol_HeaderActive] = darkestBase;
-
-			style.Colors[ImGuiCol_TabHovered] = baseColor;
-			style.Colors[ImGuiCol_TabActive] = darkerBase;
-			style.Colors[ImGuiCol_Tab] = darkestBase;
-
-			style.Colors[ImGuiCol_CheckMark] = baseColor;
-
-			style.Colors[ImGuiCol_PlotLines] = style.Colors[ImGuiCol_PlotHistogram] = darkerBase;
-			style.Colors[ImGuiCol_PlotLinesHovered] = style.Colors[ImGuiCol_PlotHistogramHovered] = baseColor;
-			break;
-		case 1:
-			style.Colors[ImGuiCol_Text] = baseColor;
-			style.Colors[ImGuiCol_TextDisabled] = darkerBase;
-			break;
-		}
-	}
-}
-
-void SetPlotLinesColor(ImVec4 color)
-{
-	auto dark = color * (1 - currentUserData.style.mainColorBrightness);
-
-	auto& style = ImGui::GetStyle();
-
-	ImGui::PushStyleColor(ImGuiCol_PlotLines, dark);
-	ImGui::PushStyleColor(ImGuiCol_PlotLinesHovered, color);
-}
-
-ImFont* GetFontBold(int baseFontIndex)
-{
-	ImGuiIO& io = ImGui::GetIO();
-	std::string fontDebugName = (std::string)io.Fonts->Fonts[fontIndex[baseFontIndex]]->GetDebugName();
-	if (fontDebugName.find('-') == std::string::npos || fontDebugName.find(',') == std::string::npos)
-		return nullptr;
-	auto fontName = fontDebugName.substr(0, fontDebugName.find('-'));
-	auto _boldFont = (io.Fonts->Fonts[fontIndex[baseFontIndex] + 1]);
-	auto boldName = ((std::string)(_boldFont->GetDebugName())).substr(0, fontDebugName.find('-'));
-	if (fontName == boldName)
-	{
-		printf("found bold font %s\n", _boldFont->GetDebugName());
-		return _boldFont;
-	}
-	return nullptr;
-}
-
-// This could also be done just using a single global variable like "hasStyleChanged", because ImGui elements like FloatSlider, ColorEdit4 return a value (true) if the value has changed.
-// But this method would not work as expected when user reverts back the changes or sets the variable to it's original value
-bool HasConfigChanged()
-{
-	bool brightnesses = currentUserData.style.mainColorBrightness == backupUserData.style.mainColorBrightness && currentUserData.style.fontColorBrightness == backupUserData.style.fontColorBrightness;
-	bool font = currentUserData.style.selectedFont == backupUserData.style.selectedFont && currentUserData.style.fontSize == backupUserData.style.fontSize;
-	bool performance = currentUserData.performance.guiLockedFps == backupUserData.performance.guiLockedFps &&
-		currentUserData.performance.lockGuiFps == backupUserData.performance.lockGuiFps &&
-		currentUserData.performance.showPlots == backupUserData.performance.showPlots &&
-		currentUserData.performance.VSync == backupUserData.performance.VSync;
-
-	bool colors{ false };
-	// Compare arrays of colors column by column, because otherwise we would just compare pointers to these values which would always yield a false positive result.
-	// (Pointers point to different addresses even tho the values at these addresses are the same)
-	for (int column = 0; column < 4; column++)
-	{
-		if (currentUserData.style.mainColor[column] != backupUserData.style.mainColor[column])
-		{
-			colors = false;
-			break;
-		}
-
-		if (currentUserData.style.fontColor[column] != backupUserData.style.fontColor[column])
-		{
-			colors = false;
-			break;
-		}
-
-		if (currentUserData.style.internalPlotColor[column] != backupUserData.style.internalPlotColor[column])
-		{
-			colors = false;
-			break;
-		}
-
-		if (currentUserData.style.externalPlotColor[column] != backupUserData.style.externalPlotColor[column])
-		{
-			colors = false;
-			break;
-		}
-
-		if (currentUserData.style.inputPlotColor[column] != backupUserData.style.inputPlotColor[column])
-		{
-			colors = false;
-			break;
-		}
-
-		colors = true;
-	}
-
-	if (!colors || !brightnesses || !font || !performance)
-		return true;
-	else
-		return false;
-}
-
-void RecalculateStats(bool recalculate_Average = false, int tabIdx = selectedTab)
-{
-	size_t size = tabsInfo[tabIdx].latencyData.measurements.size();
-	if (size <= 0)
-		return;
-	if (recalculate_Average)
-	{
-		tabsInfo[tabIdx].latencyStats.externalLatency.highest = 0;
-		tabsInfo[tabIdx].latencyStats.internalLatency.highest = 0;
-		tabsInfo[tabIdx].latencyStats.inputLatency.highest = 0;
-
-		unsigned int extSum = 0, intSum = 0, inpSum = 0;
-
-		for (size_t i = 0; i < size; i++)
-		{
-			auto& test = tabsInfo[tabIdx].latencyData.measurements[i];
-
-			if (i == 0)
-			{
-				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
-				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
-				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
-			}
-
-			extSum += test.timeExternal;
-			intSum += test.timeInternal;
-			inpSum += test.timePing;
-
-			if (test.timeExternal > tabsInfo[tabIdx].latencyStats.externalLatency.highest)
-			{
-				tabsInfo[tabIdx].latencyStats.externalLatency.highest = test.timeExternal;
-			}
-			else if (test.timeExternal < tabsInfo[tabIdx].latencyStats.externalLatency.lowest)
-			{
-				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
-			}
-
-			if (test.timeInternal > tabsInfo[tabIdx].latencyStats.internalLatency.highest)
-			{
-				tabsInfo[tabIdx].latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < tabsInfo[tabIdx].latencyStats.internalLatency.lowest)
-			{
-				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
-			}
-
-			if (test.timePing > tabsInfo[tabIdx].latencyStats.inputLatency.highest)
-			{
-				tabsInfo[tabIdx].latencyStats.inputLatency.highest = test.timePing;
-			}
-			else if (test.timePing < tabsInfo[tabIdx].latencyStats.inputLatency.lowest)
-			{
-				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
-			}
-		}
-
-		tabsInfo[tabIdx].latencyStats.externalLatency.average = static_cast<float>(extSum) / size;
-		tabsInfo[tabIdx].latencyStats.internalLatency.average = static_cast<float>(intSum) / size;
-		tabsInfo[tabIdx].latencyStats.inputLatency.average = static_cast<float>(inpSum) / size;
-	}
-	else
-	{
-		for (size_t i = 0; i < size; i++)
-		{
-			auto& test = tabsInfo[tabIdx].latencyData.measurements[i];
-
-			if (i == 0)
-			{
-				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
-				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
-				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
-			}
-
-			if (test.timeExternal > tabsInfo[tabIdx].latencyStats.externalLatency.highest)
-			{
-				tabsInfo[tabIdx].latencyStats.externalLatency.highest = test.timeExternal;
-			}
-			else if (test.timeExternal < tabsInfo[tabIdx].latencyStats.externalLatency.lowest)
-			{
-				tabsInfo[tabIdx].latencyStats.externalLatency.lowest = test.timeExternal;
-			}
-
-			if (test.timeInternal > tabsInfo[tabIdx].latencyStats.internalLatency.highest)
-			{
-				tabsInfo[tabIdx].latencyStats.internalLatency.highest = test.timeInternal;
-			}
-			else if (test.timeInternal < tabsInfo[tabIdx].latencyStats.internalLatency.lowest)
-			{
-				tabsInfo[tabIdx].latencyStats.internalLatency.lowest = test.timeInternal;
-			}
-
-			if (test.timePing > tabsInfo[tabIdx].latencyStats.inputLatency.highest)
-			{
-				tabsInfo[tabIdx].latencyStats.inputLatency.highest = test.timePing;
-			}
-			else if (test.timePing < tabsInfo[tabIdx].latencyStats.inputLatency.lowest)
-			{
-				tabsInfo[tabIdx].latencyStats.inputLatency.lowest = test.timePing;
-			}
-		}
-	}
-}
-
-// This code is very much unoptimized, but it has low optimization priority just because of how rarely this function is called
-void RemoveMeasurement(size_t index)
-{
-	auto result = tabsInfo[selectedTab].latencyData.measurements[index];
-	size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
-	bool findMax = false, findMin = false;
-
-	// Fix stats
-	if (size > 1)
-	{
-		auto _latencyStats = tabsInfo[selectedTab].latencyStats;
-		_latencyStats.externalLatency.average = ((tabsInfo[selectedTab].latencyStats.externalLatency.average * size) - result.timeExternal) / (size - 1);
-		_latencyStats.internalLatency.average = ((tabsInfo[selectedTab].latencyStats.internalLatency.average * size) - result.timeInternal) / (size - 1);
-		_latencyStats.inputLatency.average = ((tabsInfo[selectedTab].latencyStats.inputLatency.average * size) - result.timePing) / (size - 1);
-
-		tabsInfo[selectedTab].latencyStats = LatencyStats();
-		ZeroMemory(&tabsInfo[selectedTab].latencyStats, sizeof(tabsInfo[selectedTab].latencyStats));
-		tabsInfo[selectedTab].latencyStats.externalLatency.average = _latencyStats.externalLatency.average;
-		tabsInfo[selectedTab].latencyStats.internalLatency.average = _latencyStats.internalLatency.average;
-		tabsInfo[selectedTab].latencyStats.inputLatency.average = _latencyStats.inputLatency.average;
-
-		// In most cases a measurement won't be an edge case so It's better to check if it is and only then try to find a new edge value
-		//if(result.timeExternal == tabsInfo[selectedTab].latencyStats.externalLatency.highest || result.timeInternal == tabsInfo[selectedTab].latencyStats.internalLatency.highest || result.timePing == tabsInfo[selectedTab].latencyStats.inputLatency.highest ||
-		//	result.timeExternal == tabsInfo[selectedTab].latencyStats.externalLatency.lowest || result.timeInternal == tabsInfo[selectedTab].latencyStats.internalLatency.lowest || result.timePing == tabsInfo[selectedTab].latencyStats.inputLatency.lowest)
-		for (size_t i = 0; i < size; i++)
-		{
-			if (index == i)
-				continue;
-
-			auto& test = tabsInfo[selectedTab].latencyData.measurements[i];
-
-			if (i == 0 || (index == 0 && i == 1))
-			{
-				tabsInfo[selectedTab].latencyStats.externalLatency.lowest = test.timeExternal;
-				tabsInfo[selectedTab].latencyStats.internalLatency.lowest = test.timeInternal;
-				tabsInfo[selectedTab].latencyStats.inputLatency.lowest = test.timePing;
-			}
-
-			if (i > index)
-				test.index -= 1;
-		}
-
-		tabsInfo[selectedTab].latencyData.measurements.erase(tabsInfo[selectedTab].latencyData.measurements.begin() + index);
-		RecalculateStats();
-	}
-	else
-	{
-		tabsInfo[selectedTab].latencyStats = LatencyStats();
-		tabsInfo[selectedTab].latencyData.measurements.clear();
-		tabsInfo[selectedTab].isSaved = true;
-	}
-}
-
-bool SaveMeasurements()
-{
-	//if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
-	//	return false;
-
-	if (std::strlen(tabsInfo[selectedTab].savePath) == 0)
-		return SaveAsMeasurements();
-
-	HelperJson::SaveLatencyTests(tabsInfo[selectedTab], tabsInfo[selectedTab].savePath);
-	tabsInfo[selectedTab].isSaved = true;
-
-	return true;
-}
-
-bool SaveAsMeasurements()
-{
-	//if (tabsInfo[selectedTab].latencyData.measurements.size() < 1)
-	//	return false;
-
-	bool wasFullscreen = isFullscreen;
-	if (isFullscreen)
-	{
-		GUI::g_pSwapChain->SetFullscreenState(false, nullptr);
-		isFullscreen = false;
-		fullscreenModeOpenPopup = false;
-		fullscreenModeClosePopup = false;
-	}
-
-	char filename[MAX_PATH]{ "name" };
-	memcpy(filename, tabsInfo[selectedTab].name, TAB_NAME_MAX_SIZE);
-	const char szExt[] = "Json\0*.json\0\0";
-
-	OPENFILENAME ofn;
-	ZeroMemory(&ofn, sizeof(ofn));
-
-	ofn.lStructSize = sizeof(ofn);
-	ofn.hwndOwner = hwnd;
-	ofn.lpstrFile = filename;
-	ofn.nMaxFile = MAX_PATH;
-	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
-	ofn.Flags = OFN_DONTADDTORECENT | OFN_OVERWRITEPROMPT;
-
-	if (GetSaveFileName(&ofn))
-	{
-		strncpy_s(tabsInfo[selectedTab].savePath, filename, MAX_PATH);
-
-		SaveMeasurements();
-	}
-	//else
-	//	tabsInfo[selectedTab].isSaved = false;
-
-	if (wasFullscreen)
-	{
-		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
-		isFullscreen = true;
-	}
-
-	return tabsInfo[selectedTab].isSaved;
-}
-
-bool SavePackMeasurements()
-{
-	char* packSavePath = nullptr;
-	for (auto& tab : tabsInfo) {
-		if (packSavePath && strcmp(packSavePath, tab.savePathPack) != 0)
-		{
-			packSavePath = nullptr;
-			break;
-		}
-		if(strlen(tab.savePathPack) != 0)
-			packSavePath = tab.savePathPack;
-	}
-
-	if (packSavePath == nullptr)
-		return SavePackAsMeasurements();
-
-	HelperJson::SaveLatencyTestsPack(tabsInfo, packSavePath);
-	for(auto& tab : tabsInfo)
-		tab.isSaved = true;
-
-	return true;
-}
-
-bool SavePackAsMeasurements()
-{
-	bool wasFullscreen = isFullscreen;
-	if (isFullscreen)
-	{
-		GUI::g_pSwapChain->SetFullscreenState(false, nullptr);
-		isFullscreen = false;
-		fullscreenModeOpenPopup = false;
-		fullscreenModeClosePopup = false;
-	}
-
-	char filename[MAX_PATH]{ "PackName" };
-	const char szExt[] = "Json\0*.json\0\0";
-
-	OPENFILENAME ofn;
-	ZeroMemory(&ofn, sizeof(ofn));
-
-	ofn.lStructSize = sizeof(ofn);
-	ofn.hwndOwner = hwnd;
-	ofn.lpstrFile = filename;
-	ofn.nMaxFile = MAX_PATH;
-	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
-	ofn.Flags = OFN_DONTADDTORECENT | OFN_OVERWRITEPROMPT;
-	ofn.lpstrTitle = "Save Pack As";
-
-	if (GetSaveFileName(&ofn))
-	{
-		for (auto& tab : tabsInfo) {
-			strncpy_s(tab.savePathPack, filename, MAX_PATH);
-		}
-
-		SavePackMeasurements();
-	}
-	//else
-	//	tabsInfo[selectedTab].isSaved = false;
-
-	if (wasFullscreen)
-	{
-		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
-		isFullscreen = true;
-	}
-
-	return tabsInfo[selectedTab].isSaved;
-}
-
-void OpenMeasurements()
-{
-	bool wasFullscreen = isFullscreen;
-	if (isFullscreen)
-	{
-		GUI::g_pSwapChain->SetFullscreenState(false, nullptr);
-		isFullscreen = false;
-		fullscreenModeOpenPopup = false;
-		fullscreenModeClosePopup = false;
-	}
-
-	char filename[MAX_PATH*10];
-	const char szExt[] = "json\0";
-
-	ZeroMemory(filename, sizeof(filename));
-
-	OPENFILENAME ofn;
-	ZeroMemory(&ofn, sizeof(ofn));
-
-	ofn.lStructSize = sizeof(OPENFILENAME);
-	ofn.hwndOwner = hwnd;
-	ofn.lpstrFile = filename;
-	ofn.nMaxFile = sizeof(filename);
-	ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
-	ofn.Flags = OFN_DONTADDTORECENT | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
-
-	if (GetOpenFileName(&ofn))
-	{
-		//ClearData();
-		size_t added_tabs = 0;
-		bool isMultiSelect = !filename[ofn.nFileOffset-1];
-		if (isMultiSelect) {
-			std::string baseDir = filename;
-			char* pFileName = filename;
-			pFileName += baseDir.length() + 1;
-			while (*pFileName) {
-				size_t new_tabs = HelperJson::GetLatencyTests(tabsInfo, (baseDir + "\\" + pFileName).c_str());
-				for (size_t i = tabsInfo.size() - new_tabs; i < tabsInfo.size(); i++)
-				{
-					if (*tabsInfo[i].name == 0)
-					{
-						std::string pureFileName = pFileName;
-						pureFileName = pureFileName.substr(0, pureFileName.find_last_of(".json") - 4);
-						strcpy_s<TAB_NAME_MAX_SIZE>(tabsInfo[i].name, pureFileName.c_str());
-					}
-				}
-				added_tabs += new_tabs;
-				pFileName += strlen(pFileName) + 1;
-			}
-		}
-		else {
-			added_tabs = HelperJson::GetLatencyTests(tabsInfo, filename);
-			strcpy_s(tabsInfo[selectedTab].savePath, filename);
-		}
-		selectedTab += added_tabs;
-
-		for (size_t i = tabsInfo.size() - added_tabs; i < tabsInfo.size(); i++)
-		{
-			if (!tabsInfo[i].latencyData.measurements.empty())
-				RecalculateStats(true, i);
-
-			if (*tabsInfo[i].name == 0 && !isMultiSelect)
-			{
-				std::string pureFileName = filename;
-				size_t lastSlash = pureFileName.find_last_of("\\");
-				pureFileName = pureFileName.substr(lastSlash + 1, pureFileName.find_last_of(".json") - lastSlash - 5);
-				strcpy_s<TAB_NAME_MAX_SIZE>(tabsInfo[i].name, pureFileName.c_str());
-			}
-		}
-
-		//if (!tabsInfo[selectedTab].latencyData.measurements.empty())
-		//	RecalculateStats(true);
-	}
-
-	// Add this to preferences or smth
-	if (wasFullscreen)
-	{
-		GUI::g_pSwapChain->SetFullscreenState(true, nullptr);
-		isFullscreen = true;
-	}
-}
+#endif
 
 static int FilterValidPath(ImGuiInputTextCallbackData* data)
 {
@@ -994,16 +330,24 @@ int OnGui()
 	if (ImGui::BeginMenuBar())
 	{
 		short openFullscreenCommand = 0;
+        bool badVerPopupOpen = false;
 		//static bool saveMeasurementsPopup = false;
 		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::MenuItem("Open", "Ctrl+O")) { OpenMeasurements(); }
+			if (ImGui::MenuItem("Open", "Ctrl+O")) {
+                auto res = OpenMeasurements();
+                if(res & JSON_HANDLE_INFO_BAD_VERSION) {
+                    badVerPopupOpen = true;
+                    //ImGui::OpenPopup("JSON version mismatch!");
+                    //printf("BAD VERSION!\n");
+                }
+            }
 			if (ImGui::MenuItem("Save", "Ctrl+S")) { SaveMeasurements(); }
 			if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) { SaveAsMeasurements(); }
 			if (ImGui::MenuItem("Save Pack", "Alt+S")) { SavePackMeasurements(); }
 			if (ImGui::MenuItem("Save Pack As", "Alt+Shift+S")) { SavePackAsMeasurements(); }
-			if (ImGui::MenuItem("Fullscreen", "Alt+Enter")) { 
-				GUI::g_pSwapChain->GetFullscreenState((BOOL*)&isFullscreen, nullptr);
+			if (ImGui::MenuItem("Fullscreen", "Alt+Enter")) {
+                //GUI::SetFullScreenState(isFullscreen);
 
 				if (!isFullscreen && !fullscreenModeOpenPopup)
 					openFullscreenCommand = 1;
@@ -1051,25 +395,39 @@ int OnGui()
 			ImGui::OpenPopup("Exit Fullscreen mode?");
 			fullscreenModeClosePopup = true;
 		}
+
+        if(badVerPopupOpen)
+            ImGui::OpenPopup("JSON version mismatch!");
 	}
+
+    if (ImGui::BeginPopupModal("JSON version mismatch!", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+    {
+        ImGui::Text("Some of the imported files are either from an older or newer version of the program\nThe data might be corrupted or wrong!");
+        if (ImGui::Button("Ok", {-1, 0}))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 
 
 	const auto windowAvail = ImGui::GetContentRegionAvail();
 	ImGuiIO& io = ImGui::GetIO();
+    uint64_t curTime = micros();
 
-	if (serialStatus != Status_Idle && micros() > (lastInternalTest + SERIAL_NO_RESPONSE_DELAY))
+	if (serialStatus != Status_Idle && curTime > (lastInternalTest + SERIAL_NO_RESPONSE_DELAY))
 	{
 		serialStatus = Status_Idle;
 	}
 
 
 	// Handle Shortcuts
-	ImGuiKey pressedKeys[ImGuiKey_COUNT]{ 0 };
+	ImGuiKey pressedKeys[ImGuiKey_COUNT]{static_cast<ImGuiKey>(0)};
 	size_t addedKeys = 0;
 
 	//ZeroMemory(pressedKeys, ImGuiKey_COUNT);
 
-	for (ImGuiKey key = 0; key < ImGuiKey_COUNT; key++)
+	for (auto key = static_cast<ImGuiKey>(0); key < ImGuiKey_COUNT; (*(int*)&key)++)
 	{
 		bool isPressed = ImGui::IsKeyPressed(key, false);
 
@@ -1081,7 +439,6 @@ int OnGui()
 			continue;
 		
 		if (isPressed) {
-			auto name = ImGui::GetKeyName(key);
 			pressedKeys[addedKeys++] = key;
 		}
 	}
@@ -1128,7 +485,8 @@ int OnGui()
 			// Enter
 			if (pressedKeys[0] == ImGuiKey_Enter || pressedKeys[0] == ImGuiKey_KeypadEnter)
 			{
-				GUI::g_pSwapChain->GetFullscreenState((BOOL*)&isFullscreen, nullptr);
+				//GUI::g_pSwapChain->GetFullscreenState((BOOL*)&isFullscreen, nullptr);
+                isFullscreen = GUI::GetFullScreenState();
 				if (!isFullscreen && !fullscreenModeOpenPopup)
 				{
 					ImGui::OpenPopup("Enter Fullscreen mode?");
@@ -1143,8 +501,8 @@ int OnGui()
 		}
 		else if (!io.KeyShift && pressedKeys[0] == ImGuiKey_Escape)
 		{
-			BOOL isFS;
-			GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
+			bool isFS = GUI::GetFullScreenState();;
+			//GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
 			isFullscreen = isFS;
 			if (isFullscreen && !fullscreenModeClosePopup && wasEscapeUp)
 			{
@@ -1172,7 +530,7 @@ int OnGui()
 			//DXGI_MODE_DESC mode = monitorModes[modesNum - 1];
 			//GUI::g_pSwapChain->ResizeTarget(&mode);
 			//GUI::g_pSwapChain->ResizeBuffers(0, 1080, 1920, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
-			if (GUI::g_pSwapChain->SetFullscreenState(true, NULL) == S_OK)
+			if (GUI::SetFullScreenState(true) == 0)
 				isFullscreen = true;
 			else
 				isFullscreen = false;
@@ -1208,10 +566,10 @@ int OnGui()
 
 		if (ImGui::Button("Yes") || IS_ONLY_ENTER_PRESSED)
 		{
-			if (GUI::g_pSwapChain->SetFullscreenState(false, nullptr) == S_OK)
+            if (GUI::SetFullScreenState(false) == 0)
 				isFullscreen = false;
-			else
-				isFullscreen = true;
+            else
+                isFullscreen = true;
 
 			ImGui::CloseCurrentPopup();
 			fullscreenModeClosePopup = false;
@@ -1256,7 +614,7 @@ int OnGui()
 			}
 
 			// Define the messagebox popup
-			if (ImGui::BeginPopupModal("Save Style?", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+			if (ImGui::BeginPopupModal("Save Style?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 			{
 				isSettingOpen = true;
 				ImGui::PushFont(boldFont);
@@ -1308,10 +666,10 @@ int OnGui()
 				for (int i = 0; i < sizeof(items) / sizeof(items[0]); i++)
 				{
 					//ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (style.ItemSpacing.x / 2) - 2);
-					ImVec2 label_size = ImGui::CalcTextSize(items[i], NULL, true);
+					//ImVec2 label_size = ImGui::CalcTextSize(items[i], NULL, true);
 					bool isSelected = (selectedSettings == i);
 					//if (ImGui::Selectable(items[i], isSelected, 0, { (avail.x * listBoxSize - (style.ItemSpacing.x) - (style.FramePadding.x * 2)) + 4, label_size.y }, style.FrameRounding))
-					if (ImGui::Selectable(items[i], isSelected, 0, { 0, 0 }, style.FrameRounding))
+					if (ImGui::Selectable(items[i], isSelected, 0, { 0, 0 }))
 					{
 						selectedSettings = i;
 					}
@@ -1406,15 +764,15 @@ int OnGui()
 				// This has to be done manually (instead of ImGui::Combo()) to be able to change the fonts of each selectable to a corresponding one.
 				if (ImGui::BeginCombo("Font", fonts[currentUserData.style.selectedFont]))
 				{
-					for (int i = 0; i < (io.Fonts->Fonts.Size / 2) + 1; i++)
+					for (int i = 0; i < ((io.Fonts->Fonts.Size - 1) / 2) + 1; i++)
 					{
-						auto selectableSpace = ImGui::GetContentRegionAvail();
+						//auto selectableSpace = ImGui::GetContentRegionAvail();
 						//ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
 
 						ImGui::PushFont(io.Fonts->Fonts[fontIndex[i]]);
 
 						bool isSelected = (currentUserData.style.selectedFont == i);
-						if (ImGui::Selectable(fonts[i], isSelected, 0, { 0, 0 }, style.FrameRounding))
+						if (ImGui::Selectable(fonts[i], isSelected, 0, { 0, 0 }))
 						{
 							if (currentUserData.style.selectedFont != i) {
 								io.FontDefault = io.Fonts->Fonts[fontIndex[i]];
@@ -1484,7 +842,11 @@ int OnGui()
 				if ((ImGui::BeginChild("Misc", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true)))
 				{
 					ImGui::Checkbox("Save config locally", &currentUserData.misc.localUserData);
+#ifdef _WIN32
 					TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the AppData folder");
+#else
+                    TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the /home/{usr}/.LatencyMeter folder");
+#endif
 
 					ImGui::EndChild();
 				}
@@ -1732,7 +1094,11 @@ int OnGui()
 		if (ImGui::TabItemButton(" + ", ImGuiTabItemFlags_Trailing))
 		{
 			auto newTab = TabInfo();
+#ifdef _WIN32
 			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+#else
+            strcat(newTab.name, std::to_string(tabsInfo.size()).c_str());
+#endif
 			tabsInfo.push_back(newTab);
 			selectedTab = tabsInfo.size() - 1;
 
@@ -1756,7 +1122,7 @@ int OnGui()
 	{
 		tabsInfo.erase(tabsInfo.begin() + deletedTabIndex);
 		if(selectedTab >= deletedTabIndex)
-			selectedTab = max(selectedTab - 1, 0);
+			selectedTab = _max(selectedTab - 1, 0);
 		//char tabNameLabel[48];
 		//snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[selectedTab].name, selectedTab);
 
@@ -1779,7 +1145,7 @@ int OnGui()
 
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
-		//ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (CPU ONLY)", (micros() - lastFrame) / 1000.f, 1000000.0f / (micros() - lastFrame));
+		//ImGui::Text("Application average %.3f us/frame (%.1f FPS) (CPU ONLY)", (micros() - lastFrame) / 1000.f, 1000000.0f / (micros() - lastFrame));
 
 		ImGui::Text("Application average %.3f \xC2\xB5s/frame (%.1f FPS) (CPU ONLY)", averageFrametime, 1000000.f / averageFrametime);
 
@@ -1788,7 +1154,7 @@ int OnGui()
 
 		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { avail.x, ImGui::GetFrameHeight() });
 
-#endif // DEBUG
+#endif // _DEBUG
 
 		//ImGui::Combo("Select Port", &selectedPort, Serial::availablePorts.data());
 
@@ -1800,14 +1166,16 @@ int OnGui()
 
 		ImGui::PushItemWidth(80);
 		ImGui::BeginDisabled(isSelectedConnected);
+
 		if (isInternalMode)
 		{
-			if (ImGui::BeginCombo("Device", availableAudioDevices.size() > 0 ? availableAudioDevices[selectedPort].friendlyName : "0 Found"))
+//#ifdef _WIN32
+			if (ImGui::BeginCombo("Device", !availableAudioDevices.empty() ? availableAudioDevices[selectedPort].friendlyName : "0 Found"))
 			{
 				for (size_t i = 0; i < availableAudioDevices.size(); i++)
 				{
 					bool isSelected = (selectedPort == i);
-					if (ImGui::Selectable(availableAudioDevices[i].friendlyName, isSelected, 0, { 0,0 }, style.FrameRounding))
+					if (ImGui::Selectable(availableAudioDevices[i].friendlyName, isSelected, 0, { 0,0 }))
 					{
 						if (selectedPort != i)
 							Serial::Close();
@@ -1816,15 +1184,16 @@ int OnGui()
 				}
 				ImGui::EndCombo();
 			}
+//#endif
 		}
 		else
 		{
-			if (ImGui::BeginCombo("Port", Serial::availablePorts.size() > 0 ? Serial::availablePorts[selectedPort].c_str() : "0 Found"))
+			if (ImGui::BeginCombo("Port", !Serial::availablePorts.empty() ? Serial::availablePorts[selectedPort].c_str() : "0 Found"))
 			{
 				for (size_t i = 0; i < Serial::availablePorts.size(); i++)
 				{
 					bool isSelected = (selectedPort == i);
-					if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }, style.FrameRounding))
+					if (ImGui::Selectable(Serial::availablePorts[i].c_str(), isSelected, 0, { 0,0 }))
 					{
 						if (selectedPort != i)
 							Serial::Close();
@@ -1848,7 +1217,7 @@ int OnGui()
 		}
 
 		ImGui::SameLine();
-		ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
+		//ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 
 		if (isSelectedConnected)
 		{
@@ -1910,59 +1279,20 @@ int OnGui()
 			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 		}
 		else
-			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
+			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 0 });
 
 		ImGui::BeginGroup();
 
+#ifdef _WIN32
 		ImGui::Checkbox("Game Mode", &isGameMode);
 		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.");
+#else
+#warning "DISABLED GAME MODE"
+#endif
 
 		ImGui::SameLine();
 
 		ImGui::BeginDisabled(isSelectedConnected);
-		//ImGui::SetNextItemWidth(ImGui::CalcTextSize(GetInputModeName(InputMode_ModdedMouse)).x + style.ItemSpacing.x*2);
-		//if (ImGui::BeginCombo("Mode", GetInputModeName(selectedMode)))
-		//{
-		//	InputMode oldSelectedMode = selectedMode;
-		//	if (ImGui::Selectable(GetInputModeName(InputMode_Normal), selectedMode == InputMode_Normal, 0, { 0,0 }, style.FrameRounding))
-		//	{
-		//		selectedMode = InputMode_Normal;
-		//	}
-		//	TOOLTIP("Use Arduino with a button");
-		//	if (ImGui::Selectable(GetInputModeName(InputMode_ModdedMouse), selectedMode == InputMode_ModdedMouse, 0, { 0,0 }, style.FrameRounding))
-		//	{
-		//		selectedMode = InputMode_ModdedMouse;
-		//
-		//		RAWINPUTDEVICE rawDev;
-		//		rawDev.usUsagePage = 1;
-		//		rawDev.usUsage = 2;
-		//		rawDev.dwFlags = RIDEV_INPUTSINK;
-		//		rawDev.hwndTarget = hwnd;
-		//		if (!RegisterRawInputDevices(&rawDev, 1, sizeof(rawDev)))
-		//			printf("Failed to register raw input device\n");
-		//	}
-		//	TOOLTIP("Use Arduino with a \"hacked\" mouse connected to it");
-		//	if (ImGui::Selectable(GetInputModeName(InputMode_Internal), selectedMode == InputMode_Internal, 0, { 0,0 }, style.FrameRounding))
-		//	{
-		//		selectedMode = InputMode_Internal;
-		//	}
-		//	TOOLTIP("Use a light sensor connected to a 3.5mm audio port (Use the \"Run Test\" button)");
-		//	ImGui::EndCombo();
-		//
-		//	if (oldSelectedMode != selectedMode)
-		//	{
-		//		if (oldSelectedMode == InputMode_ModdedMouse)
-		//		{
-		//			RAWINPUTDEVICE rawDev;
-		//			rawDev.usUsagePage = 1;
-		//			rawDev.usUsage = 2;
-		//			rawDev.dwFlags = RIDEV_REMOVE;
-		//			rawDev.hwndTarget = 0;
-		//			if (!RegisterRawInputDevices(&rawDev, 1, sizeof(rawDev)))
-		//				printf("Failed to unregister raw input device\n");
-		//		}
-		//	}
-		//}
 		if (ImGui::Checkbox("Internal Mode", &isInternalMode))
 		{
 			int bkpSelected = lastSelectedPort;
@@ -1974,18 +1304,22 @@ int OnGui()
 
 		ImGui::SameLine();
 
+#ifdef _WIN32
 		if (ImGui::Checkbox("Audio Mode", &isAudioMode))
 		{
 
 		}
 		TOOLTIP("Measures Audio Latency (Uses a microphone instead of photoresistor)");
+#else
+#warning "DISABLED AUDIO MODE"
+#endif
 
 		if (isInternalMode) {
 			ImGui::SameLine();
 			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Vertical, { 0, 0 });
 			ImGui::SameLine();
 
-			ImGui::BeginDisabled(!CanDoInternalTest());
+			ImGui::BeginDisabled(!CanDoInternalTest(curTime));
 			auto cursorPos = ImGui::GetCurrentWindow()->DC.CursorPos;
 			if (ImGui::Button("Run Test"))
 			{
@@ -1993,7 +1327,7 @@ int OnGui()
 			}
 			ImGui::EndDisabled();
 			auto itemSize = ImGui::GetItemRectSize();
-			float frac = ImClamp<float>(((micros() - lastInternalTest) / (float)(1000000 * (uint64_t)WARMUP_AUDIO_BUFFER_SIZE / AUDIO_SAMPLE_RATE)), 0, 1);
+			float frac = ImClamp<float>(((curTime - lastInternalTest) / (float)(1000 * (uint64_t)WARMUP_AUDIO_BUFFER_SIZE / AUDIO_SAMPLE_RATE + (INTERNAL_TEST_DELAY))), 0, 1);
 			//ImGui::ProgressBar(frac);
 			cursorPos.y += ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset + style.FramePadding.y * 2 + ImGui::GetTextLineHeight() + 2;
 			cursorPos.x += 5;
@@ -2013,43 +1347,6 @@ int OnGui()
 
 		if (ImGui::BeginChild("MeasurementStats", { 0, ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y * 2 }, true))
 		{
-#pragma region OldGraphs
-			/*
-			//ImGui::BeginGroup();
-			//ImGui::Text("");
-			//ImGui::Text("Highest");
-			//ImGui::Text("Average");
-			//ImGui::Text("Minimum");
-			//ImGui::EndGroup();
-
-			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
-
-			//ImGui::BeginGroup();
-			//ImGui::Text("Internal");
-			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000);
-			//ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.average / 1000.f);
-			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000);
-			//ImGui::EndGroup();
-
-			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
-
-			//ImGui::BeginGroup();
-			//ImGui::Text("External");
-			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.highest);
-			//ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.average);
-			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.lowest);
-			//ImGui::EndGroup();
-
-			//ImGui::SameLine(); ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical); ImGui::SameLine();
-
-			//ImGui::BeginGroup();
-			//ImGui::Text("Input");
-			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000);
-			//ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.average / 1000.f);
-			//ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000);
-			//ImGui::EndGroup();
-			*/
-#pragma endregion
 			if (ImGui::BeginTable("Latency Stats Table", 4, ImGuiTableFlags_BordersInner | ImGuiTableFlags_NoPadOuterX))
 			{
 				ImGui::TableNextRow();
@@ -2071,7 +1368,7 @@ int OnGui()
 				ImGui::TableNextColumn();
 				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.highest);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.highest / 1000);
 				ImGui::TableNextColumn();
 				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000);
 
@@ -2082,7 +1379,7 @@ int OnGui()
 				ImGui::TableNextColumn();
 				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.average / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.average);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.average / 1000);
 				ImGui::TableNextColumn();
 				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.average / 1000);
 
@@ -2093,7 +1390,7 @@ int OnGui()
 				ImGui::TableNextColumn();
 				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.lowest);
+				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.lowest / 1000);
 				ImGui::TableNextColumn();
 				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000);
 
@@ -2109,7 +1406,7 @@ int OnGui()
 	if (currentUserData.performance.showPlots)
 	{
 		auto plotsAvail = ImGui::GetContentRegionAvail();
-		auto plotHeight = min(max((plotsAvail.y - (4 * style.FramePadding.y)) / 4, 40), 100);
+		auto plotHeight = _min(_max((plotsAvail.y - (4 * style.FramePadding.y)) / 4, 40), 100);
 
 		auto& measurements = tabsInfo[selectedTab].latencyData.measurements;
 
@@ -2117,7 +1414,7 @@ int OnGui()
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
 		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("External Latency", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		ImGui::PlotLines("External Latency", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
 		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
 		ImGui::PopStyleColor(6);
@@ -2134,7 +1431,7 @@ int OnGui()
 		ImGui::PushStyleColor(ImGuiCol_Border, { 0,0,0,0 });
 		ImGui::SetCursorPos(startCursorPos);
 		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal; },
+		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal / 1000.f; },
 			measurements.data(), measurements.size(), 0, NULL,
 			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
@@ -2197,11 +1494,12 @@ int OnGui()
 				ImGui::TableNextColumn();
 
 				ImGui::Text("%i", reading.timeInternal / 1000);
-				// \xC2\xB5 is the microseconds character (looks like u (not you, just "u"))
+				/* \xC2\xB5 is the microseconds character (looks like u (not you, just "u")) */
 				TOOLTIP("%i\xC2\xB5s", reading.timeInternal);
 				ImGui::TableNextColumn();
 
-				ImGui::Text("%i", reading.timeExternal);
+				ImGui::Text("%i", reading.timeExternal/1000);
+                TOOLTIP("%i\xC2\xB5s", reading.timeExternal);
 				ImGui::TableNextColumn();
 
 				ImGui::Text("%i", reading.timePing / 1000);
@@ -2218,7 +1516,7 @@ int OnGui()
 			}
 
 
-		if (wasItemAddedGUI)
+		if (wasMeasurementAddedGUI)
 			ImGui::SetScrollHereY();
 
 
@@ -2231,13 +1529,24 @@ int OnGui()
 	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
 	ImGui::Text("Measurement notes");
 	auto notesAvail = ImGui::GetContentRegionAvail();
-	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(notesAvail.y - detectionRectSize.y - 5, 600) }, ImGuiInputTextFlags_NoHorizontalScroll);
-	//ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
+	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, {tableAvail.x, _min(notesAvail.y - detectionRectSize.y - 5, 600) }, ImGuiInputTextFlags_NoHorizontalScroll);
+	//ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, _min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
 
 	ImGui::EndGroup();
 
 	static float detectionRectStart = 0;
 	ImGui::ResizeSeparator(detectionRectSize.y, detectionRectStart, ImGuiSeparatorFlags_Horizontal, {100, 400}, { avail.x, 6 });
+
+    // Start recording only when we actually change the color (Just an idea)
+    // I tested it and turns out it doesn't really make a difference );
+    //static SerialStatus last_serialStatus{serialStatus};
+    //
+    //if(serialStatus == Status_WaitingForResult && last_serialStatus != Status_WaitingForResult){
+    //    curAudioDevice->ClearRecordBuffer();
+    //    curAudioDevice->StartRecording();
+    //}
+    //
+    //last_serialStatus = serialStatus;
 
 	// Color change detection rectangle.
 	ImVec2 rectSize{ 0, detectionRectSize.y };
@@ -2263,8 +1572,17 @@ int OnGui()
 		SetPlotLinesColor({ 1,1,1,0.5 });
 		//else
 		//	SetPlotLinesColor({ 0,0,0,0.5 });
+#ifdef _WIN32
 		if (curAudioDevice)
-			ImGui::PlotLines("##audioBufferPlot2", [](void* data, int idx) {return (float)curAudioDevice->audioBuffer[idx]; }, nullptr, TEST_AUDIO_BUFFER_SIZE, 0, 0, (long long)SHRT_MAX / -1, SHRT_MAX / 1, rectSize);
+			ImGui::PlotLines("##audioBufferPlot2", [](void* data, int idx) {return (float)curAudioDevice->recordBuffer[idx]; }, nullptr, TEST_AUDIO_BUFFER_SIZE, 0, 0, (long long)SHRT_MAX / -1, SHRT_MAX / 1, rectSize);
+#else
+        if (curAudioDevice)
+            ImGui::PlotLines("##audioBufferPlot2",[](void* data, int idx) {return (float)curAudioDevice->recordBuffer[idx < (TEST_AUDIO_BUFFER_SIZE / 2) ? (idx * 2) : (idx * 2 + 1 - (TEST_AUDIO_BUFFER_SIZE))]; },
+                             nullptr, TEST_AUDIO_BUFFER_SIZE/1, 0, 0,
+                             std::numeric_limits<AUDIO_DATA_FORMAT>::min(),
+                             std::numeric_limits<AUDIO_DATA_FORMAT>::max(), rectSize);
+
+#endif
 		ImGui::PopStyleColor(3);
 		ImGui::PopStyleVar();
 	}
@@ -2277,7 +1595,11 @@ int OnGui()
 		ImGui::SeparatorSpace(0, { 0, 5 });
 
 		ImGui::Checkbox("Save config locally", &currentUserData.misc.localUserData);
+#ifdef _WIN32
 		TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the AppData folder");
+#else
+        TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the /home/ folder");
+#endif
 
 		ImGui::Spacing();
 
@@ -2354,13 +1676,13 @@ int OnGui()
 		}
 	}
 
-	wasItemAddedGUI = false;
+    wasMeasurementAddedGUI = false;
 	lastFrameGui = micros();
 
 	return 0;
 }
 
-std::chrono::steady_clock::time_point lastTimeGotChar;
+std::chrono::high_resolution_clock::time_point lastTimeGotChar;
 
 void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime)
 {
@@ -2388,7 +1710,7 @@ void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime)
 		tabsInfo[selectedTab].latencyStats.inputLatency.lowest = inputTime;
 	}
 
-	wasItemAddedGUI = true;
+    wasMeasurementAddedGUI = true;
 	reading.index = size;
 	tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
 	tabsInfo[selectedTab].isSaved = false;
@@ -2396,22 +1718,22 @@ void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime)
 
 void GotSerialChar(char c)
 {
-	if (c == 0)
+	if (c == 0 || !Serial::isConnected)
 		return;
 
 #ifdef _DEBUG
 	printf("Got: %c\n", c);
 #endif
 
-	// 6 digits should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100ms should be discarded)
+	// 6 digits should be enough. I doubt the latency can be bigger than 10 seconds (anything greater than 100us should be discarded)
 	const size_t resultBufferSize = 6;
 	static BYTE resultBuffer[resultBufferSize]{ 0 };
 	static BYTE resultNum = 0;
 
-	static std::chrono::steady_clock::time_point internalStartTime;
-	static std::chrono::steady_clock::time_point internalEndTime;
+	static std::chrono::high_resolution_clock::time_point internalStartTime;
+	static std::chrono::high_resolution_clock::time_point internalEndTime;
 
-	static std::chrono::steady_clock::time_point pingStartTime;
+	static std::chrono::high_resolution_clock::time_point pingStartTime;
 
 	// Because we are subtracting 2 similar unsigned long longs, we dont need another unsigned long long, we just need an int
 	static unsigned int internalTime = 0;
@@ -2437,27 +1759,31 @@ void GotSerialChar(char c)
 #endif
 			serialStatus = Status_WaitingForResult;
 
+#ifdef _WIN32
 			if (isAudioMode)
 				audioPlayer.Play();
+#endif
 
 			if (isGameMode)
 			{
-				INPUT input;
-				ZeroMemory(&input, sizeof(input));
+#ifdef _WIN32
+				INPUT Inputs[2] = { 0 };
 
-				input.type = INPUT_MOUSE;
-				input.mi.dx = 0;
-				input.mi.dy = 0;
-				input.mi.mouseData = 0;
-				input.mi.dwExtraInfo = NULL;
-				input.mi.time = 0;
-				input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP;
+				Inputs[0].type = INPUT_MOUSE;
+				Inputs[0].mi.dx = 0;
+				Inputs[0].mi.dy = 0;
+				Inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
 
-				if (SendInput(1, &input, sizeof(input)))
+				Inputs[1].type = INPUT_MOUSE;
+				Inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+
+				// Send input as 2 different input packets because some programs read only one flag from packets
+				if (SendInput(2, Inputs, sizeof(INPUT)))
 				{
 					wasMouseClickSent = false;
 					wasLMB_Pressed = false;
 				}
+#endif
 			}
 		}
 		return;
@@ -2467,13 +1793,13 @@ void GotSerialChar(char c)
 			internalEndTime = std::chrono::high_resolution_clock::now();
 
 		// e for end (end of the numbers)
-		// All of the code below will have to be moved to a sepearate function in the future when saving/loading from a file will be added. (Little did he know)
+		// All the code below will have to be moved to a separate function in the future when saving/loading from a file will be added. (Little did he know)
 		if (c == 'e')
 		{
 			externalTime = 0;
 			internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
 			// Convert the byte array to int
-			for (size_t i = 0; i < min(resultNum, resultBufferSize); i++)
+			for (size_t i = 0; i < _min(resultNum, resultBufferSize); i++)
 			{
 				externalTime += resultBuffer[i] * pow<int>(10, (resultNum - i - 1));
 			}
@@ -2481,7 +1807,9 @@ void GotSerialChar(char c)
 			resultNum = 0;
 			std::fill_n(resultBuffer, resultBufferSize, 0);
 
-			if (max(externalTime * 1000, internalTime) > 1000000 || min(externalTime * 1000, internalTime) < 1000)
+            externalTime *= External2Micros;
+
+			if (_max(externalTime, internalTime) > 1000000 || _min(externalTime, internalTime) < 1000)
 			{
 				serialStatus = Status_Idle;
 				ZeroMemory(resultBuffer, resultBufferSize);
@@ -2527,9 +1855,11 @@ void GotSerialChar(char c)
 
 			//size_t size = tabsInfo[selectedTab].latencyData.measurements.size(); -1;
 			// account for the serial timeout delay (this is just an estimate)
+#ifdef _WIN32
 			internalTime -= 500000 / SERIAL_UPDATE_TIME;
-			externalTime -= 1000 / SERIAL_UPDATE_TIME;
+			externalTime -= 500000 / SERIAL_UPDATE_TIME;
 			pingTime -= 1000000 / SERIAL_UPDATE_TIME;
+#endif
 			AddMeasurement(internalTime, externalTime, pingTime);
 
 			//tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
@@ -2555,7 +1885,7 @@ void GotSerialChar(char c)
 	//}
 
 #ifdef _DEBUG
-	printf("char receive delay: %lld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - lastTimeGotChar).count());
+	printf("char receive delay: %ld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - lastTimeGotChar).count());
 #endif
 	lastTimeGotChar = std::chrono::high_resolution_clock::now();
 }
@@ -2745,6 +2075,7 @@ void CloseSerial()
 
 bool SetupAudioDevice()
 {
+#ifdef _WIN32
 	int res = curAudioDevice->AddBuffer(WARMUP_AUDIO_BUFFER_SIZE);
 	if (res)
 		return false;
@@ -2754,15 +2085,43 @@ bool SetupAudioDevice()
 		return false;
 
 	return true;
+#else
+    return true;
+#endif
 }
 
-bool CanDoInternalTest()
+// [lower, upper)
+int RandInRange(int _lower, int _upper) {
+    return _lower + (rand() % (_upper - _lower));
+}
+
+bool CanDoInternalTest(uint64_t timeNow)
 {
-	return isInternalMode && curAudioDevice && (micros() > lastInternalTest + (INTERNAL_TEST_DELAY + (rand() / 10)));
+    timeNow = timeNow == 0 ? micros() : timeNow;
+    static int random_val = RandInRange(2, 10);
+    static bool set_random_val = false; // used to generate only one random value for each returned true
+            // this is because "rand()" is kinda slow and we want to reduce its usage as much as possible
+#ifdef _WIN32
+	if(isInternalMode && curAudioDevice && (timeNow > lastInternalTest + (INTERNAL_TEST_DELAY + random_val))) {
+        set_random_val = false;
+        return true;
+    }
+#else
+    if(isInternalMode && curAudioDevice && (timeNow > lastInternalTest + ((1000*WARMUP_AUDIO_BUFFER_SIZE / AUDIO_SAMPLE_RATE) + INTERNAL_TEST_DELAY + random_val))) {
+        set_random_val = false;
+        return true;
+    }
+#endif
+
+    if(!set_random_val)
+        random_val = RandInRange(80000, 400000); // 0.08 to 0.4 seconds delay (80ms to 400ms)
+    set_random_val = true;
+    return false;
 }
 
 void DiscoverAudioDevices()
 {
+#ifdef _WIN32
 	AudioDeviceInfo* devices;
 	UINT devCount = GetAudioDevices(&devices);
 
@@ -2798,10 +2157,27 @@ void DiscoverAudioDevices()
 	}
 
 	delete[] devices;
+
+#else
+
+    availableAudioDevices.clear();
+
+    cAudioDeviceInfo* a_devs;
+    auto cnt = GetAudioDevices(&a_devs);
+    availableAudioDevices.reserve(cnt);
+    std::copy(a_devs, a_devs + cnt, std::back_inserter(availableAudioDevices));
+#ifdef _DEBUG
+    for(int i = 0; i < cnt; i++) {
+        printf("device %i: %s\n", a_devs[i].id, a_devs[i].friendlyName);
+    }
+#endif
+
+#endif
 }
 
 void StartInternalTest()
 {
+#ifdef _WIN32
 	if (!CanDoInternalTest())
 		return;
 
@@ -2813,8 +2189,21 @@ void StartInternalTest()
 		curAudioDevice->ResetRecording();
 	else
 		curAudioDevice->StartRecording();
+
+#else
+    if (!CanDoInternalTest())
+        return;
+
+    serialStatus = Status_WaitingForResult;
+    curAudioDevice->ClearRecordBuffer();
+    curAudioDevice->StartRecording();
+    lastInternalTest = micros();
+
+    //printf("TEST DONE!\n");
+#endif
 }
 
+#ifdef _WIN32
 bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 {
 	IDXGIOutput* output;
@@ -2841,54 +2230,14 @@ bool GetMonitorModes(DXGI_MODE_DESC* modes, UINT* size)
 
 	return true;
 }
-
-// It turns out you can just send MOUSEEVENTF_LEFTUP and MOUSEEVENTF_LEFTDOWN at the same time, and it counts as a click...
-// (Unused)
-void HandleGameMode()
-{
-	assert(false);
-	if (!isGameMode)
-		return;
-
-	if (serialStatus != Status_WaitingForResult || wasMouseClickSent)
-		return;
-
-	INPUT input;
-	ZeroMemory(&input, sizeof(input));
-
-	input.type = INPUT_MOUSE;
-	input.mi.dx = 0;
-	input.mi.dy = 0;
-	//input.mi.mouseData = NULL;
-	//input.mi.dwExtraInfo = 0;
-	//input.mi.time = 0;
-	input.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_LEFTDOWN;
-
-	if (SendInput(1, &input, sizeof(input)))
-	{
-		wasMouseClickSent = true;
-		wasLMB_Pressed = true;
-	}
-
-	//if (SendInput(1, &input, sizeof(input)))
-	//{
-	//	wasMouseClickSent = wasLMB_Pressed;
-	//	wasLMB_Pressed = true;
-	//}
-	//input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-	//if (SendInput(1, &input, sizeof(input)))
-	//{
-	//	wasMouseClickSent = wasLMB_Pressed;
-	//	wasLMB_Pressed = true;
-	//}
-}
+#endif
 
 void AttemptConnect()
 {
 	if (isInternalMode && !availableAudioDevices.empty())
 	{
-		if (curAudioDevice)
-			delete curAudioDevice;
+#ifdef _WIN32
+        delete curAudioDevice;
 
 		curAudioDevice = new Waveform_SoundHelper(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 2u, AUDIO_SAMPLE_RATE, 16u, (DWORD_PTR)waveInCallback);
 		if (curAudioDevice && curAudioDevice->isCreated)
@@ -2898,6 +2247,22 @@ void AttemptConnect()
 
 		if (isAudioDevConnected)
 			SetAudioEnchantments(false, availableAudioDevices[selectedPort].WASAPI_id);
+
+#else
+
+
+        delete curAudioDevice;
+
+        //curAudioDevice = new ALSA_AudioDevice(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 1u, AUDIO_SAMPLE_RATE, 16u);
+        curAudioDevice = new ALSA_AudioDevice<AUDIO_DATA_FORMAT>(availableAudioDevices[selectedPort].id, TEST_AUDIO_BUFFER_SIZE, AUDIO_SAMPLE_RATE);
+        if (curAudioDevice != nullptr && curAudioDevice->isCreated) {
+            isAudioDevConnected = SetupAudioDevice();
+        }
+        else {
+            delete curAudioDevice;
+            curAudioDevice = nullptr;
+        }
+#endif
 	}
 	else if(!Serial::availablePorts.empty())
 		Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
@@ -2907,6 +2272,7 @@ void AttemptDisconnect()
 {
 	if (isInternalMode)
 	{
+#ifdef _WIN32
 		curAudioDevice->StopRecording();
 
 		SetAudioEnchantments(availableAudioDevices[selectedPort].AudioEnchantments, availableAudioDevices[selectedPort].WASAPI_id);
@@ -2917,6 +2283,16 @@ void AttemptDisconnect()
 		curAudioDevice = nullptr;
 
 		isAudioDevConnected = false;
+#else
+        //curAudioDevice->StopRecording();
+
+        if (curAudioDevice)
+            delete curAudioDevice;
+
+        curAudioDevice = nullptr;
+
+        isAudioDevConnected = false;
+#endif
 	}
 	else {
 		Serial::Close();
@@ -2952,6 +2328,7 @@ bool OnExit()
 	return isSaved;
 }
 
+#ifdef _WIN32
 void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 {
 	//enum class ModKey {
@@ -2961,7 +2338,6 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 	//	ModKey_Alt = 4,
 	//}; Just for information
 
-	
 	bool wasJustClicked = !(info & 0x40000000);
 	static unsigned char modKeyFlags = 0;
 
@@ -3040,6 +2416,98 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 	}
 }
 
+#else
+
+// Pretty much just a copy of what works on windows
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    //enum class ModKey {
+    //	ModKey_None = 0,
+    //	ModKey_Ctrl = 1,
+    //	ModKey_Shift = 2,
+    //	ModKey_Alt = 4,
+    //}; Just for information
+
+    bool isPressed = action == GLFW_PRESS || action == GLFW_REPEAT;
+    bool wasJustClicked = action == GLFW_PRESS;
+    static unsigned char modKeyFlags = 0;
+
+    //if (key == 0 && action == GLFW_RELEASE) {
+    //    modKeyFlags = 0;
+    //    return;
+    //}
+
+    if (isPressed && (key == GLFW_KEY_RIGHT_CONTROL || key == GLFW_KEY_LEFT_CONTROL))
+        modKeyFlags |= 1;
+
+    if (!isPressed && (key == GLFW_KEY_RIGHT_CONTROL || key == GLFW_KEY_LEFT_CONTROL))
+        modKeyFlags ^= 1;
+
+
+    if (isPressed && (key == GLFW_KEY_RIGHT_SHIFT || key == GLFW_KEY_LEFT_SHIFT))
+        modKeyFlags |= 2;
+
+    if (!isPressed && (key == GLFW_KEY_RIGHT_SHIFT || key == GLFW_KEY_LEFT_SHIFT))
+        modKeyFlags ^= 2;
+
+
+    if (isPressed && (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT))
+        modKeyFlags |= 4;
+
+    if (!isPressed && (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT))
+        modKeyFlags ^= 4;
+
+    //printf("Key mod: %u\n", modKeyFlags);
+
+
+    // Handle time-sensitive KB input
+    if (isInternalMode && key == 'R' && isPressed && modKeyFlags == 2 && serialStatus != Status_WaitingForResult)
+    {
+        StartInternalTest();
+    }
+
+    if (modKeyFlags == 1 && isPressed)
+    {
+        if (key == 'S' && wasJustClicked)
+        {
+            SaveMeasurements();
+        }
+        else if (key == 'O' && wasJustClicked)
+        {
+            OpenMeasurements();
+        }
+        else if (key == 'N' && wasJustClicked)
+        {
+            auto newTab = TabInfo();
+            strcat(newTab.name, std::to_string(tabsInfo.size()).c_str());
+            tabsInfo.push_back(newTab);
+            selectedTab = tabsInfo.size() - 1;
+        }
+        else if (key == 'Q' && wasJustClicked)
+        {
+            if (isInternalMode ? isAudioDevConnected : Serial::isConnected)
+                AttemptDisconnect();
+            else
+                AttemptConnect();
+        }
+    }
+    if (modKeyFlags == 3 && key == 'S' && wasJustClicked)
+        SaveAsMeasurements();
+    if ((modKeyFlags & 4) == 4 && isPressed)
+    {
+        if (key == 'S' && modKeyFlags == 4 && wasJustClicked)
+        {
+            SavePackMeasurements();
+        }
+
+        if (key == 'S' && (modKeyFlags & 2) == 2 && wasJustClicked)
+        {
+            SavePackAsMeasurements();
+        }
+    }
+}
+
+#endif
+
 //void RawInputEvent(RAWINPUT* ri)
 //{
 //	if (ri->header.dwType == RIM_TYPEMOUSE)
@@ -3052,38 +2520,56 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 //	}
 //}
 
-void millisSleep(LONGLONG ns) {
-	::LARGE_INTEGER ft;
-	ft.QuadPart = -static_cast<int64_t>(ns*10);  // '-' using relative time
+#ifdef _WIN32
+auto millisSleepTimer = ::CreateWaitableTimerEx(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, EVENT_ALL_ACCESS);
 
-	::HANDLE timer = ::CreateWaitableTimer(NULL, TRUE, NULL);
-	::SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
-	::WaitForSingleObject(timer, 20);
-	::CloseHandle(timer);
+// 500us precision
+void microsSleep(LONGLONG us) {
+	::LARGE_INTEGER ft;
+	ft.QuadPart = -static_cast<int64_t>(us * 10);  // '-' using relative time
+
+	//::HANDLE millisSleepTimer = ::CreateWaitableTimer(NULL, TRUE, NULL);
+	::SetWaitableTimer(millisSleepTimer, &ft, 0, NULL, NULL, 0);
+	::WaitForSingleObject(millisSleepTimer, 200);
+	//::CloseHandle(millisSleepTimer);
 }
+#endif
 
 // Main code
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
 	hwnd = GUI::Setup(OnGui);
+#else
+    GUI::VSyncFrame = &currentUserData.performance.VSync;
+    GUI::Setup(OnGui);
+    GUI::RegKeyCallback(key_callback);
+#endif
 	GUI::onExitFunc = OnExit;
 
 	srand(time(NULL));
 		
-	localPath = argv[0];
+	//localPath = argv[0];
 
+#ifdef _WIN32
 	QueryPerformanceCounter(&StartingTime);
+#endif
 
+    // Doesnt do that much (anything) and I'd rather not be this "critical"
 	//if (SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
 	//	printf("Priotity set to the Highest\n");
 
+#ifdef _WIN32
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
 #else
 	::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 #endif
+#endif
 
 	//::ShowWindow(::GetConsoleWindow(), SW_SHOW);
+	//AllocConsole();
+	//freopen_s((FILE**)stdout, "CONOUT$", "w", stdout);
 
 	static size_t frameIndex = 0;
 	static uint64_t frameSum = 0;
@@ -3094,20 +2580,24 @@ int main(int argc, char** argv)
 
 	leftTabWidth = GUI::windowX/2;
 
+#ifdef _WIN32
 	GUI::KeyDownFunc = KeyDown;
 	//GUI::RawInputEventFunc = RawInputEvent;
+#endif
 
 	auto defaultTab = TabInfo();
 	defaultTab.name[4] = '0';
 	defaultTab.name[5] = '\0';
 	tabsInfo.push_back(defaultTab);
 
+#ifdef _WIN32
 	UINT modesNum = 256;
 	DXGI_MODE_DESC monitorModes[256];
 	GetMonitorModes(monitorModes, &modesNum);
 
 	GUI::MAX_SUPPORTED_FRAMERATE = monitorModes[modesNum - 1].RefreshRate.Numerator;
 	GUI::VSyncFrame = &currentUserData.performance.VSync;
+#endif
 
 	//float colors[styleColorNum][4];
 	//float brightnesses[styleColorNum] = { accentBrightness, fontBrightness };
@@ -3117,26 +2607,8 @@ int main(int argc, char** argv)
 		ApplyCurrentStyle();
 		//ApplyStyle(colors, brightnesses);
 
-		//// Set the default colors to the varaibles with a type conversion (ImVec4 -> float[4]) (could be done with std::copy, but the performance advantage it gives is just unmeasurable, especially for a single time execution code)
-		//memcpy(&accentColor, &(colors[0][0]), colorSize);
-		//memcpy(&fontColor, &(colors[1][0]), colorSize);
-
-		//accentBrightness = brightnesses[0];
-		//fontBrightness = brightnesses[1];
-
-		//memcpy(&accentColorBak, &accentColor, colorSize);
-		//memcpy(&fontColorBak, &fontColor, colorSize);
-
-		//accentBrightnessBak = accentBrightness;
-		//fontBrightnessBak = fontBrightness;
-
-		//selectedFontBak = selectedFont;
-		//fontSizeBak = fontSize;
-
-		//guiLockedFpsBak = guiLockedFps;
-		//lockGuiFpsBak = lockGuiFps;
-
-		//showPlotsBak = showPlots;
+		//// Set the default colors to the variables with a type conversion (ImVec4 -> float[4]) (could be done with std::copy,
+		//// but the performance advantage it gives is just immeasurable, especially for a single time execution code)
 
 		backupUserData = currentUserData;
 
@@ -3175,6 +2647,7 @@ int main(int argc, char** argv)
 
 		currentUserData.performance.VSync = backupUserData.performance.VSync = false;
 
+#ifdef _WIN32
 		printf("found %u monitor modes\n", modesNum);
 		currentUserData.performance.guiLockedFps = (monitorModes[modesNum - 1].RefreshRate.Numerator / monitorModes[modesNum - 1].RefreshRate.Denominator) * 2;
 
@@ -3186,6 +2659,8 @@ int main(int argc, char** argv)
 		}
 
 #endif // DEBUG
+
+#endif // _WIN32
 
 		backupUserData.performance.guiLockedFps = currentUserData.performance.guiLockedFps;
 
@@ -3199,13 +2674,18 @@ int main(int argc, char** argv)
 	}
 
 	// Just imagine what would happen if user for example had a 220 character long username and path to %AppData% + "imgui.ini" would exceed 260. lovely
-	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfingPath() : HelperJson::GetAppDataUserConfingPath());
-	imguiFileIniPath = imguiFileIniPath.substr(0, imguiFileIniPath.find_last_of(L"\\/") + 1) + L"imgui.ini";
-	char outputPathBuffer[MAX_PATH];
+	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfingPath() : HelperJson::GetAppDataUserConfigPath());
+	imguiFileIniPath = imguiFileIniPath.substr(0, imguiFileIniPath.find_last_of(OS_SPEC_PATH("\\/")) + 1) + OS_SPEC_PATH("imgui.ini");
 
+#ifdef _WIN32
+    char outputPathBuffer[MAX_PATH];
 	wcstombs_s(nullptr, outputPathBuffer, MAX_PATH, imguiFileIniPath.c_str(), imguiFileIniPath.size());
+    io.IniFilename = outputPathBuffer;
+#else
+    //wcstombs(outputPathBuffer, imguiFileIniPath.c_str(), imguiFileIniPath.size());
+    io.IniFilename = imguiFileIniPath.c_str();
+#endif
 
-	io.IniFilename = outputPathBuffer;
 
 	Serial::FindAvailableSerialPorts();
 
@@ -3213,6 +2693,7 @@ int main(int argc, char** argv)
 
 	DiscoverAudioDevices();
 
+#ifdef _WIN32
 	// Setup Audio buffer (with noise)
 	audioPlayer.Setup();
 	audioPlayer.SetBuffer([](int i) { return ((rand() * 2 - RAND_MAX) % RAND_MAX) * 10; });
@@ -3223,7 +2704,7 @@ int main(int argc, char** argv)
 	//IDXGIOutput* output;
 	//GUI::g_pSwapChain->GetFullscreenState(&fScreen, &output);
 	//isFullscreen = fScreen;
-
+#endif
 
 	//if (Serial::Setup("COM4", GotSerialChar))
 	//	printf("Serial Port opened successfuly");
@@ -3235,9 +2716,26 @@ int main(int argc, char** argv)
 
 	int GUI_Return_Code = 0;
 
+#ifdef _WIN32
 	TIMECAPS tc;
 	timeGetDevCaps(&tc, sizeof(tc));
 	timeBeginPeriod(tc.wPeriodMin);
+#endif
+
+	//size_t cnt = 0;
+	//auto start = micros();
+	//while (cnt < 500)
+	//{
+	//	microsSleep(4000);
+	//	cnt++;
+	//	//std::cout << "callback at time: " << micros();
+	//	//printf("callback at time: %lldms\n", micros());
+	//}
+
+	//auto end = micros();
+
+	//printf("took: %lld, average rate was %fus\n", (end - start), (end - start) / 500.f);
+	//return 0;
 
 MainLoop:
 
@@ -3249,11 +2747,25 @@ MainLoop:
 		//if(isGameMode)
 		//	HandleGameMode();
 
+        // Update Audio Input (Linux)
+#ifdef __linux__
+
+        if(isInternalMode && curAudioDevice && curAudioDevice->isRecording) {
+            bool res = curAudioDevice->UpdateState();
+            if (res) {
+                //printf("Got results!\n");
+                serialStatus = Status_Idle;
+                AnalyzeData();
+            }
+        }
+
+#endif
+
 		// GUI Loop
 		uint64_t curTime = micros();
 		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ?
 			(GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 :
-			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps)
+			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps || currentUserData.performance.VSync)
 		{
 			uint64_t frameStartRender = curTime;
 			if (GUI_Return_Code = GUI::DrawGui())
@@ -3275,7 +2787,7 @@ MainLoop:
 
 		// Average frametime calculation
 		//printf("Frame: %i\n", frameIndex);
-		frameIndex = min(AVERAGE_FRAME_COUNT - 1, frameIndex);
+		frameIndex = _min(AVERAGE_FRAME_COUNT - 1, frameIndex);
 		frameSum -= frames[frameIndex];
 		frameSum += newFrame;
 		frames[frameIndex] = newFrame;
@@ -3287,19 +2799,47 @@ MainLoop:
 		lastFrame = curTime;
 
 		// Try to sleep enough to "wake up" right before having to display another frame
-		if (!currentUserData.performance.VSync && currentUserData.performance.lockGuiFps)
-		{
-			uint64_t frameTime = 1000000 / currentUserData.performance.guiLockedFps;
-			uint64_t nextFrameIn = lastFrameGui + frameTime - curTime - lastFrameRenderTime;
+		//if (!currentUserData.performance.VSync && currentUserData.performance.lockGuiFps)
+		//{
+		//	uint64_t frameTime = 1000000 / currentUserData.performance.guiLockedFps;
+		//	uint64_t nextFrameIn = lastFrameGui + frameTime - micros() - lastFrameRenderTime;
 
-			if (nextFrameIn > 2500)
-				millisSleep((nextFrameIn - 2400));
-				//std::this_thread::sleep_for(std::chrono::microseconds(nextFrameIn - 1050));
-		}
+		//	printf("Next frame in %lldus\n", nextFrameIn);
+		//	
+		//	if (nextFrameIn > 2500) {
+		//		microsSleep(nextFrameIn - 1250);
+
+		//		nextFrameIn = lastFrameGui + frameTime - micros() - lastFrameRenderTime;
+		//		printf("Woke up %lldus before present\n", nextFrameIn);
+		//	}
+
+		//	//if (nextFrameIn > 25)
+		//	//	microsSleep((nextFrameIn - 24));
+		//		//std::this_thread::sleep_for(std::chrono::microseconds(nextFrameIn - 1050));
+		//}
+
+        // Actually do it on a semi-realtime OS
+#ifdef __linux__
+        if(!currentUserData.performance.VSync && currentUserData.performance.lockGuiFps) {
+            //static uint64_t last_nextFrameIn;
+            uint64_t frameTime = 1000000 / currentUserData.performance.guiLockedFps;
+            uint64_t nextFrameIn = lastFrameGui + frameTime - micros() - lastFrameRenderTime;
+
+            //if(last_nextFrameIn > 1000)
+            //    printf("woke up %luus before (%luus)\n", nextFrameIn, last_frame_render_time - micros());
+            //if(static_cast<int64_t>(nextFrameIn) < 0)
+            //    printf("rendered %lius too late!\n", -static_cast<int64_t>(nextFrameIn));
+
+            if (lastFrameGui + frameTime > micros() + lastFrameRenderTime)
+                std::this_thread::sleep_for(std::chrono::microseconds(nextFrameIn - 60));
+
+            //last_nextFrameIn = nextFrameIn;
+        }
+#endif
 
 #ifdef _DEBUG
-		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)
-		Sleep(1);
+		// Limit FPS for eco-friendly purposes (Significantly affects the performance) (Windows does not support sub 1 millisecond sleep)*
+		//Sleep(1);
 #endif // _DEBUG
 	}
 
@@ -3309,12 +2849,16 @@ MainLoop:
 		goto MainLoop;
 	}
 
+#ifdef _WIN32
 	if (curAudioDevice) {
 		curAudioDevice->StopRecording();
 		delete curAudioDevice;
 	}
-
 	timeEndPeriod(tc.wPeriodMin);
+#else
+    delete curAudioDevice;
+#endif
+
 	Serial::Close();
 	GUI::Destroy();
 }
