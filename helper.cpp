@@ -33,7 +33,6 @@ namespace helper {
     }
 
 #ifdef _WIN32
-    static LARGE_INTEGER StartingTime{ 0 };
 
     uint64_t micros()
     {
@@ -502,7 +501,7 @@ namespace helper {
         ZeroMemory(&ofn, sizeof(ofn));
 
         ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = hwnd;
+        ofn.hwndOwner = GUI::hwnd;
         ofn.lpstrFile = filename;
         ofn.nMaxFile = MAX_PATH;
         ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
@@ -588,7 +587,7 @@ namespace helper {
         ZeroMemory(&ofn, sizeof(ofn));
 
         ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = hwnd;
+        ofn.hwndOwner = GUI::hwnd;
         ofn.lpstrFile = filename;
         ofn.nMaxFile = MAX_PATH;
         ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
@@ -659,7 +658,7 @@ namespace helper {
         ZeroMemory(&ofn, sizeof(ofn));
 
         ofn.lStructSize = sizeof(OPENFILENAME);
-        ofn.hwndOwner = hwnd;
+        ofn.hwndOwner = GUI::hwnd;
         ofn.lpstrFile = filename;
         ofn.nMaxFile = sizeof(filename);
         ofn.lpstrFilter = ofn.lpstrDefExt = szExt;
@@ -667,7 +666,6 @@ namespace helper {
 
         if (GetOpenFileName(&ofn))
         {
-            int json_ver = 0;
             //ClearData();
             size_t added_tabs = 0;
             bool isMultiSelect = !filename[ofn.nFileOffset-1];
@@ -676,10 +674,8 @@ namespace helper {
                 char* pFileName = filename;
                 pFileName += baseDir.length() + 1;
                 while (*pFileName) {
-                    size_t new_tabs = HelperJson::GetLatencyTests(tabsInfo, (baseDir + "\\" + pFileName).c_str(), json_ver);
+                    size_t new_tabs = HelperJson::GetLatencyTests(tabsInfo, (baseDir + "\\" + pFileName).c_str());
                     // json version mismatch
-                    if(json_ver != json_version)
-                        out_res |= JSON_HANDLE_INFO_BAD_VERSION;
                     for (size_t i = tabsInfo.size() - new_tabs; i < tabsInfo.size(); i++)
                     {
                         if (*tabsInfo[i].name == 0)
@@ -688,15 +684,19 @@ namespace helper {
                             pureFileName = pureFileName.substr(0, pureFileName.find_last_of(".json") - 4);
                             strcpy_s<TAB_NAME_MAX_SIZE>(tabsInfo[i].name, pureFileName.c_str());
                         }
+
+                        // json version mismatch
+                        if(tabsInfo[i].saved_ver != json_version)
+                            out_res |= JSON_HANDLE_INFO_BAD_VERSION;
                     }
                     added_tabs += new_tabs;
                     pFileName += strlen(pFileName) + 1;
                 }
             }
             else {
-                added_tabs = HelperJson::GetLatencyTests(tabsInfo, filename, json_ver);
+                added_tabs = HelperJson::GetLatencyTests(tabsInfo, filename);
                 // json version mismatch
-                if(json_ver != json_version)
+                if(tabsInfo.back().saved_ver != json_version)
                     out_res |= JSON_HANDLE_INFO_BAD_VERSION;
                 strcpy_s(tabsInfo[selectedTab].savePath, filename);
             }
@@ -732,12 +732,7 @@ namespace helper {
             size_t added_tabs = 0;
             while (std::getline(files, line)) {
                 printf("Adding from file: %s\n", line.c_str());
-                int json_ver = 0;
-                size_t new_tabs = HelperJson::GetLatencyTests(tabsInfo, line.c_str(), json_ver);
-
-                // json version mismatch
-                if (json_ver != json_version)
-                    out_res |= JSON_HANDLE_INFO_BAD_VERSION;
+                size_t new_tabs = HelperJson::GetLatencyTests(tabsInfo, line.c_str());
 
                 for (size_t i = tabsInfo.size() - new_tabs; i < tabsInfo.size(); i++) {
                     // Copy the filename to the tab's name
@@ -748,6 +743,10 @@ namespace helper {
                                                            pureFileName.find_last_of(".json") - 5 - lastSlash);
                         pureFileName.copy(tabsInfo[i].name, TAB_NAME_MAX_SIZE);
                     }
+
+                    // json version mismatch
+                    if(tabsInfo[i].saved_ver != json_version)
+                            out_res |= JSON_HANDLE_INFO_BAD_VERSION;
 
                     // Set the save path
                     line.copy(new_tabs == 1 ? tabsInfo[i].savePath : tabsInfo[i].savePathPack, MAX_PATH);

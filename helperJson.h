@@ -18,12 +18,12 @@ namespace HelperJson
 
 	void SaveLatencyTests(TabInfo& tests, char path[_MAX_PATH]);
 
-	size_t GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH], int& ver);
+	size_t GetLatencyTests(std::vector<TabInfo> &tests, const char path[_MAX_PATH]);
 
 	void SaveLatencyTestsPack(std::vector<TabInfo> &tabs, char path[_MAX_PATH]);
 
 	void UserConfigLocationChanged(bool isNewLocal);
 
     OS_SPEC_PATH_STR GetAppDataUserConfigPath();
-    OS_SPEC_PATH_STR GetLocalUserConfingPath();
+    OS_SPEC_PATH_STR GetLocalUserConfigPath();
 }

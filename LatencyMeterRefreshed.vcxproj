@@ -170,6 +170,7 @@
     <ClCompile Include="External\ImGui\imgui_tables.cpp" />
     <ClCompile Include="External\ImGui\imgui_widgets.cpp" />
     <ClCompile Include="gui.cpp" />
+    <ClCompile Include="helper.cpp" />
     <ClCompile Include="helperJson.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="serial.cpp" />
@@ -187,6 +188,7 @@
     <ClInclude Include="External\ImGui\imstb_textedit.h" />
     <ClInclude Include="External\ImGui\imstb_truetype.h" />
     <ClInclude Include="Fonts.h" />
+    <ClInclude Include="helper.h" />
     <ClInclude Include="helperJson.h" />
     <ClInclude Include="External\nlohmann\json.hpp" />
     <ClInclude Include="gui.h" />

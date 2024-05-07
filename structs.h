@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include "constants.h"
 
 enum SerialStatus
 {
@@ -70,6 +71,8 @@ struct TabInfo
 	bool isSaved = true;
 	char savePath[260]{ 0 };
 	char savePathPack[260]{ 0 };
+
+    int saved_ver = json_version;
 
 	char name[TAB_NAME_MAX_SIZE]{ "Tab " };
 };

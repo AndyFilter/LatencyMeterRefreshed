@@ -37,6 +37,7 @@ namespace GUI
 	inline std::vector<IDXGIAdapter*> vAdapters;
 	inline void (*KeyDownFunc)(WPARAM key, LPARAM info, bool isPressed);
 	inline void (*RawInputEventFunc)(RAWINPUT *rawInput);
+    inline HWND hwnd = nullptr;
 
 #else
     inline GLFWwindow* window;

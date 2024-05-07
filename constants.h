@@ -37,7 +37,7 @@ const char invalidPathCharacters[]{'<', '>', ':', '"', '\\', '/', '|', '?', '*'}
 // OS specific string / file formats:
 #ifdef _WIN32
 #define OS_SPEC_PATH_STR std::wstring
-#define OS_SPEC_PATH_CHAR wchar
+#define OS_SPEC_PATH_CHAR wchar_t
 #define OS_SPEC_PATH(t) L##t
 #else
 #define OS_SPEC_PATH_STR std::string

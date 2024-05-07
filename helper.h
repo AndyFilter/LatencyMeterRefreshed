@@ -8,8 +8,8 @@
 #include <vector>
 #include <string>
 
-#ifndef _WIN32
-
+#ifdef __linux__
+#include <unistd.h>
 #define _min(a,b) \
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
@@ -20,10 +20,18 @@
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
 
+#else
+
+#include <windows.h>
+#define _min(a,b) min(a,b)
+#define _max(a,b) max(a,b)
+
 #endif
 
 #ifndef ZeroMemory
+#ifdef __linux__
 #define ZeroMemory(ptr, size) (memset(ptr, 0, size))
+#endif
 #endif
 
 static ImGuiTableSortSpecs* sortSpec;
@@ -31,6 +39,11 @@ static ImGuiTableSortSpecs* sortSpec;
 namespace helper {
 
     static unsigned long External2Micros = 1000;
+
+    // idk why I didn't just expose it in GUI.h...
+#ifdef _WIN32
+    //HWND hwnd; // I have exposed it in GUI namespace
+#endif
 
     /* ---- User Data ----  (Don't ask me why I didn't create structures for these things earlier) */
     inline const int styleColorNum = 2;
@@ -60,6 +73,10 @@ namespace helper {
 
 
     int LatencyCompare(const void* a, const void* b);
+
+#ifdef _WIN32
+    inline LARGE_INTEGER StartingTime{ 0 };
+#endif
     uint64_t micros();
 
     void ApplyStyle(float colors[styleColorNum][4], float brightnesses[styleColorNum]);

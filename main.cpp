@@ -17,16 +17,10 @@
 #include "Audio/Sound_Helper.h"
 #include "External/ImGui/imgui_extensions.h"
 #include <algorithm>
-#include <unistd.h>
 #include "helper.h"
 
 using namespace helper;
 
-
-// idk why I didn't just expose it in GUI.h...
-#ifdef _WIN32
-HWND hwnd;
-#endif
 
 ImVec2 detectionRectSize{ 0, 200 };
 
@@ -2520,26 +2514,11 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 //	}
 //}
 
-#ifdef _WIN32
-auto millisSleepTimer = ::CreateWaitableTimerEx(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, EVENT_ALL_ACCESS);
-
-// 500us precision
-void microsSleep(LONGLONG us) {
-	::LARGE_INTEGER ft;
-	ft.QuadPart = -static_cast<int64_t>(us * 10);  // '-' using relative time
-
-	//::HANDLE millisSleepTimer = ::CreateWaitableTimer(NULL, TRUE, NULL);
-	::SetWaitableTimer(millisSleepTimer, &ft, 0, NULL, NULL, 0);
-	::WaitForSingleObject(millisSleepTimer, 200);
-	//::CloseHandle(millisSleepTimer);
-}
-#endif
-
 // Main code
 int main(int argc, char** argv)
 {
 #ifdef _WIN32
-	hwnd = GUI::Setup(OnGui);
+	GUI::Setup(OnGui);
 #else
     GUI::VSyncFrame = &currentUserData.performance.VSync;
     GUI::Setup(OnGui);
@@ -2557,7 +2536,7 @@ int main(int argc, char** argv)
 
     // Doesnt do that much (anything) and I'd rather not be this "critical"
 	//if (SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
-	//	printf("Priotity set to the Highest\n");
+	//	printf("Priority set to the Highest\n");
 
 #ifdef _WIN32
 #ifndef _DEBUG
@@ -2674,7 +2653,7 @@ int main(int argc, char** argv)
 	}
 
 	// Just imagine what would happen if user for example had a 220 character long username and path to %AppData% + "imgui.ini" would exceed 260. lovely
-	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfingPath() : HelperJson::GetAppDataUserConfigPath());
+	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfigPath() : HelperJson::GetAppDataUserConfigPath());
 	imguiFileIniPath = imguiFileIniPath.substr(0, imguiFileIniPath.find_last_of(OS_SPEC_PATH("\\/")) + 1) + OS_SPEC_PATH("imgui.ini");
 
 #ifdef _WIN32
@@ -2766,9 +2745,9 @@ MainLoop:
 		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ?
 			(GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 :
 			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps || currentUserData.performance.VSync)
-		{
+        {
 			uint64_t frameStartRender = curTime;
-			if (GUI_Return_Code = GUI::DrawGui())
+			if ((GUI_Return_Code = GUI::DrawGui()))
 				break;
 			lastFrameRenderTime = lastFrameGui - frameStartRender;
 			curTime += lastFrameRenderTime;

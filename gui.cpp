@@ -165,7 +165,6 @@ void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 static WNDCLASSEX wc;
-static HWND hwnd;
 
 static int (*mainGuiFunc)();
 
@@ -219,6 +218,8 @@ HWND GUI::Setup(int (*OnGuiFunc)())
 	pDXGIAdapter->GetParent(__uuidof(IDXGIFactory), (void**)&pIDXGIFactory);
 
 	pIDXGIFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
+
+    ApplyImGuiStyle();
 
 	return hwnd;
 }
