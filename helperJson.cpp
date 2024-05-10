@@ -280,7 +280,7 @@ OS_SPEC_PATH_STR GetUserDataPath(bool islocal)
     OS_SPEC_PATH_STR filePath;
     if (islocal)
     {
-        filePath = HelperJson::GetLocalUserConfingPath();
+        filePath = HelperJson::GetLocalUserConfigPath();
         configFile = std::ofstream(filePath);
     }
     else
@@ -383,7 +383,7 @@ bool HelperJson::GetUserData(UserData& userData)
 	configFile.close();
 	return true;
 #else
-    OS_SPEC_PATH_STR filePath = HelperJson::GetLocalUserConfingPath();
+    OS_SPEC_PATH_STR filePath = HelperJson::GetLocalUserConfigPath();
 
     std::ifstream configFile(filePath);
 

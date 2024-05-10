@@ -157,7 +157,6 @@ public:
 
 #else
 #include <alsa/asoundlib.h>
-#include <sys/asoundlib.h>
 
 // Synchronous!
 template<typename Ty = int>
