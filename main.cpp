@@ -2757,12 +2757,11 @@ MainLoop:
 
 		uint64_t newFrame = curTime - lastFrame;
 
-		if (newFrame > 1000000)
-		{
-			totalFrames++;
-			lastFrame = curTime;
-			continue;
-		}
+        if (newFrame > 1000000) {
+            totalFrames++;
+            lastFrame = curTime;
+            continue;
+        }
 
 		// Average frametime calculation
 		//printf("Frame: %i\n", frameIndex);

@@ -32,7 +32,7 @@ if (UNIX)
     find_package(glfw3 3.3 REQUIRED)
     target_link_libraries(${PROJECT_NAME} glfw)
 else ()
-    target_sources(${PROJECT_NAME}
+    target_sources(${PROJECT_NAME} PRIVATE
             External/ImGui/imgui_impl_dx11.cpp
             External/ImGui/imgui_impl_win32.cpp
     )
