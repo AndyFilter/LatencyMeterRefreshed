@@ -331,7 +331,7 @@ typedef struct WAV_HEADER {
 	uint8_t fmt[4] = { 'f', 'm', 't', ' ' }; // FMT header
 	uint32_t Subchunk1Size = 16;           // Size of the fmt chunk
 	uint16_t AudioFormat = 1; // Audio format 1 = PCM
-	uint16_t NumOfChan = 1;   // Number of channels 1=Mono 2=Sterio
+	uint16_t NumOfChan = 1;   // Number of channels 1=Mono, 2=Stereo
 	uint32_t SamplesPerSec = WAV_HEADER_DATA_SIZE * WAV_PLAY_TIME_FRAC;   // Sampling Frequency in Hz
 	uint32_t bytesPerSec = SamplesPerSec * 2; // bytes per second
 	uint16_t blockAlign = 2;          // 2=16-bit mono, 4=16-bit stereo
@@ -452,7 +452,7 @@ uint64_t micros1()
     return us - start_time;
 }
 //
-//int ALSA_AudioDevice::StartRecording() {
+//int ALSA_RecDevice::StartRecording() {
 //    int err = 0;
 //    //snd_pcm_prepare(capture_handle);
 //    //usleep(10000);
@@ -498,7 +498,7 @@ uint64_t micros1()
 //    //return err;
 //}
 //
-//int ALSA_AudioDevice::StartRecordingBlocking() {
+//int ALSA_RecDevice::StartRecordingBlocking() {
 //    int err = 0;
 //    if ((err = snd_pcm_readi (capture_handle, recordBuffer, BUF_FRAMES)) != BUF_FRAMES) {
 //        fprintf (stderr, "read from audio interface failed (%s)\n", snd_strerror (err));
@@ -506,15 +506,15 @@ uint64_t micros1()
 //    return err;
 //}
 //
-//int ALSA_AudioDevice::PlayAudio() {
+//int ALSA_RecDevice::PlayAudio() {
 //    int err = 0;
-//    if ((err = snd_pcm_writei (playback_handle, playbackbuffer, BUF_FRAMES)) != BUF_FRAMES) {
+//    if ((err = snd_pcm_writei (playback_handle, playbackBuffer, BUF_FRAMES)) != BUF_FRAMES) {
 //        fprintf (stderr, "write to audio interface failed (%s)\n", snd_strerror (err)); exit (1);
 //    }
 //    return err;
 //}
 //
-//int ALSA_AudioDevice::ClearRecordBuffer() {
+//int ALSA_RecDevice::ClearRecordBuffer() {
 //    int err = 0;
 //    //auto start = micros1();
 //    if((err = snd_pcm_drop(capture_handle)) < 0) {
@@ -533,7 +533,7 @@ uint64_t micros1()
 //// Pretty much just waits for new data, and if there is any, just accumulates it
 //// Doesn't matter if we are reading it too slowly, it won't affect the final result
 //// Thats because we are forcing period time to be as big as possible (bigger than 512...)
-//bool ALSA_AudioDevice::UpdateState() {
+//bool ALSA_RecDevice::UpdateState() {
 //
 //    // Dont even try to read if there is nothing to be read
 //    auto status = snd_pcm_avail(capture_handle);

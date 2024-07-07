@@ -157,10 +157,70 @@ public:
 
 #else
 #include <alsa/asoundlib.h>
+#include <cmath>
 
-// Synchronous!
-template<typename Ty = int>
+template<typename Ty = short>
 class ALSA_AudioDevice {
+    unsigned int BUF_FRAMES = 0;
+public:
+    snd_pcm_t *playback_handle = nullptr;
+    unsigned int SAMPLE_RATE = 44100;
+    int NUM_CHANNELS = 1;
+    int BITS_PER_SAMPLE = 16;
+    snd_pcm_uframes_t BUFFER_SIZE = SAMPLE_RATE * 2;
+    int DEV_ID = 0;
+    int NUM_BUFFERS = 1;
+
+    Ty* playbackBuffer = nullptr;
+
+    ALSA_AudioDevice(UINT& buf_size, UINT& sampleRate) :
+            SAMPLE_RATE(sampleRate), BUFFER_SIZE(buf_size) {
+        int err = 0;
+        if ((err = snd_pcm_open (&playback_handle, "default", SND_PCM_STREAM_PLAYBACK, 1)) < 0) {
+            fprintf (stderr, "cannot open audio device %s (%s)\n", "default", snd_strerror (err));
+            return;
+        }
+
+        // Set parameters
+        snd_pcm_hw_params_t* hwParams;
+        snd_pcm_hw_params_alloca(&hwParams);
+        snd_pcm_hw_params_any(playback_handle, hwParams);
+        snd_pcm_hw_params_set_access(playback_handle, hwParams, SND_PCM_ACCESS_RW_INTERLEAVED);
+        snd_pcm_hw_params_set_channels(playback_handle, hwParams, 1);
+        snd_pcm_hw_params_set_rate_near(playback_handle, hwParams, &SAMPLE_RATE, nullptr);
+        snd_pcm_hw_params_set_period_size_near(playback_handle, hwParams, &BUFFER_SIZE, nullptr);
+        err = snd_pcm_hw_params(playback_handle, hwParams);
+
+        sampleRate = SAMPLE_RATE;
+        buf_size = BUFFER_SIZE;
+
+        BUF_FRAMES = BUFFER_SIZE * NUM_CHANNELS;
+        playbackBuffer = new Ty[BUF_FRAMES];
+    }
+
+    int Play() {
+        int err = 0;
+        if ((err = snd_pcm_writei (playback_handle, playbackBuffer, BUF_FRAMES)) != BUF_FRAMES) {
+            fprintf (stderr, "write to audio interface failed (%s)\n", snd_strerror (err)); exit (1);
+        }
+        return err;
+    }
+
+    void PrepareBuffer() {
+        snd_pcm_prepare(playback_handle);
+    }
+
+    template<typename funcTy>
+    void SetBuffer(funcTy func, float volume = 1) {
+        for(int i = 0; i < BUF_FRAMES; i++) {
+            playbackBuffer[i] = func(i) * volume;
+        }
+    }
+};
+
+// Synchronous! (kind of)
+template<typename Ty = int>
+class ALSA_RecDevice {
     unsigned int BUF_FRAMES = 0;
     pollfd* pollDescriptors;
     unsigned int read_frames = 0;
@@ -169,7 +229,6 @@ class ALSA_AudioDevice {
 
     bool is_loop = false;
 public:
-    snd_pcm_t *playback_handle = nullptr;
     snd_pcm_t *capture_handle = nullptr;
     unsigned int SAMPLE_RATE = 44100;
     int NUM_CHANNELS = 2;  // Stereo (we don't need it, but most devices dont support mono.........................)
@@ -181,11 +240,10 @@ public:
     bool isCreated = false;
 
     Ty* recordBuffer = nullptr;
-    Ty* playbackbuffer = nullptr;
 
     bool isRecording = false;
 
-    ALSA_AudioDevice(UINT DeviceId, UINT& buf_size, UINT& sampleRate) :
+    ALSA_RecDevice(UINT DeviceId, UINT& buf_size, UINT& sampleRate) :
             SAMPLE_RATE(sampleRate), BUFFER_SIZE(buf_size), DEV_ID(DeviceId)
     {
         int err;
@@ -285,12 +343,9 @@ public:
         isCreated = true;
     }
 
-    ~ALSA_AudioDevice() {
+    ~ALSA_RecDevice() {
         delete[] recordBuffer;
-        delete[] playbackbuffer;
         delete[] pollDescriptors;
-        if(playback_handle)
-            snd_pcm_close (playback_handle);
         if(capture_handle)
             snd_pcm_close (capture_handle);
     }
@@ -326,15 +381,6 @@ public:
         return err;
     }
 
-    // I might use this for audio latency tests
-    int PlayAudio() {
-        int err = 0;
-        if ((err = snd_pcm_writei (playback_handle, playbackbuffer, BUF_FRAMES)) != BUF_FRAMES) {
-            fprintf (stderr, "write to audio interface failed (%s)\n", snd_strerror (err)); exit (1);
-        }
-        return err;
-    }
-
     int ClearRecordBuffer() {
         int err = 0;
         //auto start = micros1();
@@ -361,9 +407,9 @@ public:
         auto status = snd_pcm_avail(capture_handle);
         if(status <= 0)
             return false;
-
+#ifdef _DEBUG
         printf("status: %i\n", status);
-
+#endif
         int err;
         int ret = poll(pollDescriptors, 1, 0); // Timeout of 0ms
         if (ret == -1) {
@@ -385,8 +431,9 @@ public:
                 std::cerr << "Error reading from PCM device: " << snd_strerror(err) << std::endl;
                 return false;
             }
-
+#ifdef _DEBUG
             printf("read frames: %i, new frames: %i, status: %i\n", read_frames, err, status);
+#endif
 
             if(status < err)
                 exit(1);

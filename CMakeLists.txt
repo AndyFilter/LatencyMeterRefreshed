@@ -29,6 +29,8 @@ target_link_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/Dependencies/
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/Dependencies/GLFW/Include)
 
 if (UNIX)
+    find_package(X11 REQUIRED)
+    target_link_libraries(${PROJECT_NAME} ${X11_LIBRARIES})
     find_package(glfw3 3.3 REQUIRED)
     target_link_libraries(${PROJECT_NAME} glfw)
 else ()

@@ -94,6 +94,7 @@ namespace helper {
     bool SavePackMeasurements();
     bool SavePackAsMeasurements();
     JSON_HANDLE_INFO OpenMeasurements();
+    void mouseClick(); // This might not work for some applications
 
 } // helper
 

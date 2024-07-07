@@ -55,8 +55,12 @@ const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
 const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
 const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
 #else
+UINT PLAYBACK_BUFFER_SIZE = 1000;
+UINT PLAYBACK_SAMPLE_RATE = 10000;
+ALSA_AudioDevice<short> audioPlayer(PLAYBACK_BUFFER_SIZE, PLAYBACK_SAMPLE_RATE);
+
 #define AUDIO_DATA_FORMAT int
-ALSA_AudioDevice<AUDIO_DATA_FORMAT>* curAudioDevice;
+ALSA_RecDevice<AUDIO_DATA_FORMAT>* curAudioDevice;
 UINT AUDIO_SAMPLE_RATE = 44100;//44100;//44100U;
 UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 4;
 const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2; // On Unix this isn't really a "buffer", but just a delay
@@ -81,8 +85,6 @@ std::vector<int> unsavedTabs;
 bool isGameMode = false;
 bool isInternalMode = false;
 bool isAudioMode = false;
-bool wasLMB_Pressed = false;
-bool wasMouseClickSent = false;
 
 bool wasMeasurementAddedGUI = false;
 
@@ -1277,12 +1279,8 @@ int OnGui()
 
 		ImGui::BeginGroup();
 
-#ifdef _WIN32
 		ImGui::Checkbox("Game Mode", &isGameMode);
 		TOOLTIP("This mode instead of lighting up the rectangle at the bottom will simulate pressing the left mouse button (fire in game).\nTo register the delay between input and shot in game.");
-#else
-#warning "DISABLED GAME MODE"
-#endif
 
 		ImGui::SameLine();
 
@@ -1298,15 +1296,8 @@ int OnGui()
 
 		ImGui::SameLine();
 
-#ifdef _WIN32
-		if (ImGui::Checkbox("Audio Mode", &isAudioMode))
-		{
-
-		}
+		if (ImGui::Checkbox("Audio Mode", &isAudioMode)) { }
 		TOOLTIP("Measures Audio Latency (Uses a microphone instead of photoresistor)");
-#else
-#warning "DISABLED AUDIO MODE"
-#endif
 
 		if (isInternalMode) {
 			ImGui::SameLine();
@@ -1753,32 +1744,13 @@ void GotSerialChar(char c)
 #endif
 			serialStatus = Status_WaitingForResult;
 
-#ifdef _WIN32
+//#ifdef _WIN32
 			if (isAudioMode)
 				audioPlayer.Play();
-#endif
+//#endif
 
 			if (isGameMode)
-			{
-#ifdef _WIN32
-				INPUT Inputs[2] = { 0 };
-
-				Inputs[0].type = INPUT_MOUSE;
-				Inputs[0].mi.dx = 0;
-				Inputs[0].mi.dy = 0;
-				Inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-
-				Inputs[1].type = INPUT_MOUSE;
-				Inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-
-				// Send input as 2 different input packets because some programs read only one flag from packets
-				if (SendInput(2, Inputs, sizeof(INPUT)))
-				{
-					wasMouseClickSent = false;
-					wasLMB_Pressed = false;
-				}
-#endif
-			}
+                mouseClick();
 		}
 		return;
 		break;
@@ -1810,8 +1782,8 @@ void GotSerialChar(char c)
 				break;
 			}
 
-			wasMouseClickSent = false;
-			wasLMB_Pressed = false;
+			//wasMouseClickSent = false;
+			//wasLMB_Pressed = false;
 
 			//if (!wasModdedMouseTimeUpdated)
 			//	moddedMouseTimeClicked += std::chrono::microseconds(375227);
@@ -2188,6 +2160,14 @@ void StartInternalTest()
     if (!CanDoInternalTest())
         return;
 
+    //audioPlayer.SetBuffer([](int i){return rand();}, 1);
+    audioPlayer.PrepareBuffer();
+    if (isAudioMode)
+        audioPlayer.Play();
+
+    if (isGameMode)
+        mouseClick();
+
     serialStatus = Status_WaitingForResult;
     curAudioDevice->ClearRecordBuffer();
     curAudioDevice->StartRecording();
@@ -2247,8 +2227,8 @@ void AttemptConnect()
 
         delete curAudioDevice;
 
-        //curAudioDevice = new ALSA_AudioDevice(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 1u, AUDIO_SAMPLE_RATE, 16u);
-        curAudioDevice = new ALSA_AudioDevice<AUDIO_DATA_FORMAT>(availableAudioDevices[selectedPort].id, TEST_AUDIO_BUFFER_SIZE, AUDIO_SAMPLE_RATE);
+        //curAudioDevice = new ALSA_RecDevice(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 1u, AUDIO_SAMPLE_RATE, 16u);
+        curAudioDevice = new ALSA_RecDevice<AUDIO_DATA_FORMAT>(availableAudioDevices[selectedPort].id, TEST_AUDIO_BUFFER_SIZE, AUDIO_SAMPLE_RATE);
         if (curAudioDevice != nullptr && curAudioDevice->isCreated) {
             isAudioDevConnected = SetupAudioDevice();
         }
@@ -2672,18 +2652,15 @@ int main(int argc, char** argv)
 
 	DiscoverAudioDevices();
 
+
 #ifdef _WIN32
-	// Setup Audio buffer (with noise)
 	audioPlayer.Setup();
+#endif
+    // Setup Audio buffer (with noise)
 	audioPlayer.SetBuffer([](int i) { return ((rand() * 2 - RAND_MAX) % RAND_MAX) * 10; });
 	//audioPlayer.SetBuffer([](int i) { return rand() % SHRT_MAX; });
 	//audioPlayer.SetBuffer([](int i) { return (int)(sinf(i/4.f) * RAND_MAX); });
 
-	//BOOL fScreen;
-	//IDXGIOutput* output;
-	//GUI::g_pSwapChain->GetFullscreenState(&fScreen, &output);
-	//isFullscreen = fScreen;
-#endif
 
 	//if (Serial::Setup("COM4", GotSerialChar))
 	//	printf("Serial Port opened successfuly");

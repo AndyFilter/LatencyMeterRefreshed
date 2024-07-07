@@ -4,6 +4,9 @@
 #include "helper.h"
 #include "helperJson.h"
 #include "gui.h"
+#ifdef __linux__
+#include <X11/Xlib.h>
+#endif
 
 namespace helper {
     int LatencyCompare(const void* a, const void* b)
@@ -780,6 +783,75 @@ namespace helper {
 
         return out_res;
     }
+
+#ifdef __linux__
+    void mouseClick()
+    {
+        Display *display = XOpenDisplay(NULL);
+
+        XEvent event;
+
+        if(display == NULL)
+        {
+            fprintf(stderr, "Cannot initialize the display\n");
+            exit(EXIT_FAILURE);
+        }
+
+        memset(&event, 0x00, sizeof(event));
+
+        event.type = ButtonPress;
+        event.xbutton.button = Button1;
+        event.xbutton.same_screen = True;
+
+        XQueryPointer(display, RootWindow(display, DefaultScreen(display)), &event.xbutton.root, &event.xbutton.window, &event.xbutton.x_root, &event.xbutton.y_root, &event.xbutton.x, &event.xbutton.y, &event.xbutton.state);
+
+        event.xbutton.subwindow = event.xbutton.window;
+
+        while(event.xbutton.subwindow)
+        {
+            event.xbutton.window = event.xbutton.subwindow;
+
+            XQueryPointer(display, event.xbutton.window, &event.xbutton.root, &event.xbutton.subwindow, &event.xbutton.x_root, &event.xbutton.y_root, &event.xbutton.x, &event.xbutton.y, &event.xbutton.state);
+        }
+
+        if(XSendEvent(display, PointerWindow, True, 0xfff, &event) == 0) fprintf(stderr, "Error\n");
+
+        XFlush(display);
+
+        //usleep(100000);
+
+        event.type = ButtonRelease;
+        event.xbutton.state = 0x100;
+
+        if(XSendEvent(display, PointerWindow, True, 0xfff, &event) == 0) fprintf(stderr, "Error\n");
+
+        XFlush(display);
+
+        XCloseDisplay(display);
+    }
+#else
+    void mouseClick(){
+        //static bool wasLMB_Pressed = false;
+        //static bool wasMouseClickSent = false;
+
+        INPUT Inputs[2] = { 0 };
+
+        Inputs[0].type = INPUT_MOUSE;
+        Inputs[0].mi.dx = 0;
+        Inputs[0].mi.dy = 0;
+        Inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+
+        Inputs[1].type = INPUT_MOUSE;
+        Inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+
+        // Send input as 2 different input packets because some programs read only one flag from packets
+        if (SendInput(2, Inputs, sizeof(INPUT)))
+        {
+            //wasMouseClickSent = false;
+            //wasLMB_Pressed = false;
+        }
+    }
+#endif
 
 
 } // helper
