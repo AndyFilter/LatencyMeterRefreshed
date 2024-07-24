@@ -36,7 +36,7 @@ inline const char* GetInputModeName(InputMode im) {
 
 struct LatencyReading
 {
-	unsigned int timeExternal; // in millis
+	unsigned int timeExternal; // in micros
 	unsigned int timeInternal; // in micros
 	unsigned int timePing; // in micros
 	unsigned int index;

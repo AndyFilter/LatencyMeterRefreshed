@@ -34,11 +34,11 @@
 #endif
 #endif
 
-static ImGuiTableSortSpecs* sortSpec;
+inline ImGuiTableSortSpecs* sortSpec;
 
 namespace helper {
 
-    static unsigned long External2Micros = 1000;
+    inline unsigned long External2Micros = 1000;
 
     // idk why I didn't just expose it in GUI.h...
 #ifdef _WIN32
