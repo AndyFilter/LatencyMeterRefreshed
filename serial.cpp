@@ -302,7 +302,8 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	serialParams.fOutX = FALSE;
 	serialParams.fErrorChar = FALSE;
 	serialParams.fNull = FALSE;
-	serialParams.fRtsControl = RTS_CONTROL_DISABLE;
+	serialParams.fRtsControl = RTS_CONTROL_ENABLE; // This has to be enabled for some boards (like Pro Micro),
+	// But seems to work just fine disabled with boards like Uno. But having this ON might increase the input latency
 	serialParams.fAbortOnError = FALSE;
 	serialParams.XonLim = 0;
 	serialParams.XoffLim = 0;
@@ -310,7 +311,7 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c))
 	serialParams.XoffChar = 0;
 	serialParams.ErrorChar = 0;
 	serialParams.EofChar = 0;
-	serialParams.EvtChar = 0x7E;
+	//serialParams.EvtChar = 'C';
 
 	if (!SetCommState(hPort, &serialParams))
 		return false;
