@@ -1,3 +1,9 @@
+#define EMULATE_MOUSE // Works only on supported devices (with UART), for example Pro Micro
+
+#ifdef EMULATE_MOUSE
+#include "HID-Project.h"
+#endif
+
 const int LDR = A0;
 const int button = 2;
 
@@ -12,6 +18,11 @@ bool isWaiting = 0;
 int buttonState = 0; 
 int LDRprobeTime = 0;
 
+/* --------- Dynamic Parameters --------- */
+bool useMillis = false; // Milli or Micro seconds
+bool reverseInput = false;
+float thresholdMultip = 1.f;
+
 void setup() {
   Serial.begin(19200);
   pinMode(button, INPUT_PULLUP);
@@ -22,6 +33,10 @@ void setup() {
   // TCCR1B = 1 << CS10;
   // TCNT1 = 0;
 
+#ifdef EMULATE_MOUSE
+  Mouse.begin();
+#endif
+
   delay(100);
   while(Serial.available() > 0)
   {
@@ -29,11 +44,15 @@ void setup() {
   }
 }
 
-auto timingFunc = micros;
+const auto timingFunc = micros;
 
 void loop() {
-    LDRValue = analogRead(LDR); // You might need to change it to LDRValue = 1024 - analogRead(LDR), if using some odd sensor
+    LDRValue = reverseInput ? (1024 - analogRead(LDR)) : analogRead(LDR); // You might need to change it to LDRValue = 1024 - analogRead(LDR), if using some odd sensor
+  #ifdef ARDUINO_AVR_UNO
     buttonState = (PIND >> button & B00000100 >> button); // B00000100, the button is connected at pin 2, so we want to mask only the bit 2 (third one because we start from 0) (This is just a fancy way of writing digitalRead(button))
+  #else
+    buttonState = digitalRead(button);
+  #endif
     
     // 375203 is used, because it's a prime. It's just 3.7 seconds
     if(buttonState == LOW && (timingFunc() - Started > 375203)) 
@@ -41,13 +60,16 @@ void loop() {
       Started = timingFunc();
       Serial.print('l');
       isWaiting = 1;
+#ifdef EMULATE_MOUSE
+      Mouse.click();
+#endif
     }
 
     // Light Detection
     if(isWaiting && (LDRValue > LastLDR*THRESHOLD_RELATIVE) && LDRValue > LastLDR+THRESHOLD_ABSOLUTE) 
     {
-      Serial.print((timingFunc() - Started) / 1000);
-      Serial.print('e');
+      Serial.print((timingFunc() - Started) / (useMillis ? 1000 : 1));
+      Serial.print(useMillis ? 'm' : 'u');
       isWaiting = 0;
       LDRprobeTime = millis();
     }
@@ -55,7 +77,7 @@ void loop() {
     // Input latency check (Ping)
     if (!isWaiting && Serial.available() > 0)
     {
-      char incoming = Serial.read();
+      const char incoming = Serial.read();
       if(incoming == 'p')
         Serial.print('b');
       //Serial.print(incoming);

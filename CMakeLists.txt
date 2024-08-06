@@ -13,7 +13,6 @@ add_executable(${PROJECT_NAME} main.cpp
         External/ImGui/imgui_tables.cpp
         External/ImGui/imgui_impl_opengl3.cpp
         External/ImGui/imgui_demo.cpp
-        External/ImGui/imgui_demo.cpp
         External/ImGui/imgui_draw.cpp
         External/ImGui/imgui_impl_glfw.cpp
         External/ImGui/imgui.cpp
@@ -23,10 +22,12 @@ add_executable(${PROJECT_NAME} main.cpp
 
 include_directories(${CMAKE_SOURCE_DIR})
 
-message(${CMAKE_SOURCE_DIR}/Dependencies/GLFW/lib-vc2022)
-
+# Include GLFW headers and library
 target_link_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/Dependencies/GLFW/lib-vc2022)
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/Dependencies/GLFW/Include)
+
+# Include PortAudio headers
+include_directories(${CMAKE_SOURCE_DIR}/Dependencies/PortAudio/include)
 
 if (UNIX)
     find_package(X11 REQUIRED)
@@ -39,6 +40,21 @@ else ()
             External/ImGui/imgui_impl_win32.cpp
     )
     target_link_libraries(${PROJECT_NAME} glfw3)
+
+    # Link PortAudio libs
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8) # 64 bit
+        if(CMAKE_BUILD_TYPE MATCHES Debug)
+            target_link_libraries(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/Dependencies/PortAudio/lib/portaudio_x64_dbg.lib)
+        else ()
+            target_link_libraries(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/Dependencies/PortAudio/lib/portaudio_x64.lib)
+        endif ()
+    else () # 32 bit
+        if(CMAKE_BUILD_TYPE MATCHES Debug)
+            target_link_libraries(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/Dependencies/PortAudio/lib/portaudio_x86_dbg.lib)
+        else ()
+            target_link_libraries(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/Dependencies/PortAudio/lib/portaudio_x86.lib)
+        endif ()
+    endif ()
 endif ()
 
 find_package(OpenGL REQUIRED)
@@ -49,4 +65,9 @@ if (UNIX)
     find_package(ALSA REQUIRED)
     include_directories(${ALSA_INCLUDE_DIRS})
     target_link_libraries(${PROJECT_NAME} ${ALSA_LIBRARIES})
+
+    # Link PortAudio lib
+    target_link_libraries(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/Dependencies/PortAudio/lib/libportaudio.a rt m asound pthread)
+#    add_link_options(-lrt -lm -lasound -ljack -pthread)
+#    set (CMAKE_STATIC_LINKER_FLAGS "lasound")
 endif (UNIX)

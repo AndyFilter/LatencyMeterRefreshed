@@ -23,8 +23,11 @@ namespace GUI
 	void Destroy() noexcept;
 	void LoadFonts(float fontSizeMultiplier = 1.f);
     bool GetFullScreenState();
+#ifdef _WIN32
+    int SetFullScreenState(BOOL state);
+#else
     int SetFullScreenState(bool state);
-
+#endif
     inline bool (*onExitFunc)();
 
     inline UINT MAX_SUPPORTED_FRAMERATE = 144;
@@ -36,7 +39,7 @@ namespace GUI
 	inline std::vector<IDXGIOutput*> vOutputs;
 	inline std::vector<IDXGIAdapter*> vAdapters;
 	inline void (*KeyDownFunc)(WPARAM key, LPARAM info, bool isPressed);
-	inline void (*RawInputEventFunc)(RAWINPUT *rawInput);
+    [[maybe_unused]] inline void (*RawInputEventFunc)(RAWINPUT *rawInput);
     inline HWND hwnd = nullptr;
 
 #else

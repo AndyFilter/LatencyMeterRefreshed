@@ -33,6 +33,7 @@ const unsigned int AVERAGE_FRAME_COUNT = 1000;
 uint64_t frames[AVERAGE_FRAME_COUNT]{ 0 };
 unsigned long long totalFrames = 0;
 
+bool AnalyzeData();
 
 // ---- Functionality ----
 
@@ -44,29 +45,38 @@ int lastSelectedPort = 0;
 InputMode selectedMode = InputMode_Normal;
 
 uint64_t lastInternalTest = 0;
-bool isAudioDevConnected = false;
+bool isAudioDevConnected = false; // Input device
+bool isPlaybackDevConnected = false; // Output device
 std::vector<cAudioDeviceInfo> availableAudioDevices;
-#ifdef _WIN32
-Waveform_SoundHelper* curAudioDevice;
-WinAudio_Player audioPlayer;
-const UINT AUDIO_SAMPLE_RATE = 10000;//44100U;
-const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
-const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
-const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
+AudioProcessor audioProcessor([](){
+    AnalyzeData();
+    serialStatus = Status_Idle;
+});
+PaDeviceIndex selectedOutputAudioDeviceIdx = 0;
+const UINT AUDIO_SAMPLE_RATE = REC_SAMPLE_RATE;//44100U;
+//const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
+//const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
+//const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
 const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
-#else
-UINT PLAYBACK_BUFFER_SIZE = 1000;
-UINT PLAYBACK_SAMPLE_RATE = 10000;
-ALSA_AudioDevice<short> audioPlayer(PLAYBACK_BUFFER_SIZE, PLAYBACK_SAMPLE_RATE);
-
-#define AUDIO_DATA_FORMAT int
-ALSA_RecDevice<AUDIO_DATA_FORMAT>* curAudioDevice;
-UINT AUDIO_SAMPLE_RATE = 44100;//44100;//44100U;
-UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 4;
-const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2; // On Unix this isn't really a "buffer", but just a delay
-UINT AUDIO_BUFFER_SIZE = TEST_AUDIO_BUFFER_SIZE;
-const UINT INTERNAL_TEST_DELAY = 995387; // in microseconds
-#endif
+//#ifdef _WIN32
+//const UINT AUDIO_SAMPLE_RATE = 10000;//44100U;
+//const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
+//const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
+//const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
+//const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
+//#else
+//UINT PLAYBACK_BUFFER_SIZE = 1000;
+//UINT PLAYBACK_SAMPLE_RATE = 10000;
+//ALSA_AudioDevice<short> audioPlayer(PLAYBACK_BUFFER_SIZE, PLAYBACK_SAMPLE_RATE);
+//
+//#define AUDIO_DATA_FORMAT int
+//ALSA_RecDevice<AUDIO_DATA_FORMAT>* curAudioDevice;
+//UINT AUDIO_SAMPLE_RATE = 44100;//44100;//44100U;
+//UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 4;
+//const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2; // On Unix this isn't really a "buffer", but just a delay
+//UINT AUDIO_BUFFER_SIZE = TEST_AUDIO_BUFFER_SIZE;
+//const UINT INTERNAL_TEST_DELAY = 995387; // in microseconds
+//#endif
 
 std::chrono::steady_clock::time_point moddedMouseTimeClicked;
 bool wasModdedMouseTimeUpdated = false;
@@ -133,25 +143,25 @@ TODO:
 + Pack Save (Save all the tabs into a single file) (?)
 + Configuration Screen
 + Pack fonts into a byte array and load them that way.
-- Add option to display frametime (?)
-- See what can be done about the inefficient Serial Comm code
+- Add option to display frametime (?) [Should be something like (2/(framerate)) * 1000]
++ See what can be done about the inefficient Serial Comm code
 - Inform user of all the available keyboard shortcuts
-- Clean-up the audio code
-- Handle unplugging audio devices mid test
++ Clean-up the audio code
++ Handle unplugging audio devices mid test
 - Arduino debug mode (print sensor values etc.)
 - Overall better communication with Arduino
 - A way to change the Audio Latency "beep" wave function / frequency
+- User-friendly notifications about errors and such
 
 */
 
 bool isSettingOpen = false;
 
-#ifdef _WIN32
 bool AnalyzeData()
 {
 	UINT iter_offset = 00;
 	const UINT BUFFER_MAX_VALUE = (1 << (sizeof(short) * 8)) / 2 - 1;
-	const int BUFFER_THRESHOLD = BUFFER_MAX_VALUE / 5;
+	const int BUFFER_THRESHOLD = BUFFER_MAX_VALUE / 5 / (isAudioMode ? 2 : 1);
 
 	//serialStatus = Status_Idle;
 
@@ -160,10 +170,10 @@ bool AnalyzeData()
 	//const int REMAINDER_COUNTDOWN_VALUE = 10;
 	//int isBufferRemainder = 0; // Value at which last measurement ended gets carried to the current buffer, we have to deal with it.
 
-	for (int i = iter_offset; i < TEST_AUDIO_BUFFER_SIZE; i++)
+	for (size_t i = iter_offset; i < FRAMES_TO_CAPTURE / MAIN_BUFFER_SIZE_FRACTION; i++)
 	{
 		if (i - iter_offset < AvgCount) {
-			baseAvg += curAudioDevice->recordBuffer[i];
+			baseAvg += audioProcessor.recordedSamples[i];
 			continue;
 		}
 		else if (i - iter_offset == AvgCount) {
@@ -183,119 +193,24 @@ bool AnalyzeData()
 		//	continue;
 		//}
 
-		short sample = abs(curAudioDevice->recordBuffer[i] - baseAvg);
+		short sample = abs(audioProcessor.recordedSamples[i] - baseAvg);
 
-		if (sample >= BUFFER_THRESHOLD / (isAudioMode ? 4 : 1))
+		if (sample >= BUFFER_THRESHOLD)
 		{
-			float microsElapsed = (1000000 * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
-#ifdef _DEBUG
-			std::cout << "latency: " << microsElapsed << ", base val: " << baseAvg << std::endl;
-#endif // _DEBUG
+			float microsElapsed = (1000000ull * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
 			if (baseAvg > BUFFER_MAX_VALUE * 0.9f || microsElapsed <= 1000)
 				return false;
+#ifdef _DEBUG
+            std::cout << "latency: " << microsElapsed << ", base val: " << baseAvg << std::endl;
+            printf("at sample %i\n", i);
+#endif // _DEBUG
 			AddMeasurement(microsElapsed, 0, 0);
 			return true;
 		}
 	}
-}
 
-// Callback function called by waveInOpen
-//HWAVEIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR
-void CALLBACK waveInCallback(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2)
-{
-	switch (uMsg)
-	{
-	case WIM_DATA:
-	{
-		////if(serialStatus != Status_Idle)
-		////	curAudioDevice->SwapToNextBuffer();
-		//serialStatus = Status_Idle;
-		////((Waveform_SoundHelper*)dwInstance)->GetPlayTime();
-		////short sample = curAudioDevice->GetPlayTime().u.sample;
-		////detection_Color = ImColor(0.f, 0.f, 0.f, 1.f);
-		////printf("new data\n");
-		//AnalyzeData();
-
-		
-		static bool swapped_buffers = false;
-		static bool reverted_buffers = false;
-		if (serialStatus != Status_Idle && !swapped_buffers) {
-
-			swapped_buffers = true;
-			reverted_buffers = false;
-			curAudioDevice->SwapToNextBuffer();
-			if (isAudioMode)
-				audioPlayer.Play();
-			serialStatus = Status_WaitingForResult;
-			break;
-		}
-		swapped_buffers = false;
-		if (!reverted_buffers) {
-			reverted_buffers = true;
-			AnalyzeData();
-			serialStatus = Status_Idle;
-			curAudioDevice->SwapToNextBuffer();
-		}
-		//printf("new data\n");
-	}
-	break;
-	default:
-		break;
-	}
-}
-
-#else
-
-// Same function as on Windows
-bool AnalyzeData() {
-    UINT iter_offset = 0;
-    const size_t BUFFER_MAX_VALUE = (1ull << (sizeof(AUDIO_DATA_FORMAT) * 8)) / 2 - 1;
-    const size_t BUFFER_THRESHOLD = BUFFER_MAX_VALUE / 5;
-
-    //serialStatus = Status_Idle;
-
-    int baseAvg = 0;
-    const short AvgCount = 10;
-    //const int REMAINDER_COUNTDOWN_VALUE = 10;
-    //int isBufferRemainder = 0; // Value at which last measurement ended gets carried to the current buffer, we have to deal with it.
-
-    for (int i = iter_offset; i < TEST_AUDIO_BUFFER_SIZE; i+=2)
-    {
-        // try to account for the base value in the buffer
-        if (i - iter_offset < AvgCount) {
-            baseAvg += curAudioDevice->recordBuffer[i];
-            continue;
-        }
-        else if (i - iter_offset == AvgCount) {
-            baseAvg /= AvgCount;
-            baseAvg = abs(baseAvg);
-
-            if(baseAvg > BUFFER_MAX_VALUE / 3) {
-                // BAD DATA! Possibly bring the volume down to fix it
-                return false;
-            }
-        }
-
-
-        AUDIO_DATA_FORMAT sample = abs(curAudioDevice->recordBuffer[i] - baseAvg);
-
-        if (sample >= BUFFER_THRESHOLD / (isAudioMode ? 4 : 1))
-        {
-            float microsElapsed = (1000000 * (i / 2 - iter_offset)) / AUDIO_SAMPLE_RATE;
-#ifdef _DEBUG
-            std::cout << "latency: " << microsElapsed << ", base val: " << baseAvg << ", at sample: " << i << std::endl;
-#endif // _DEBUG
-            // Could add a popup to notify user after a couple of failed attempts that smth is prolly wrong...
-            if (baseAvg > BUFFER_MAX_VALUE * 0.9f || microsElapsed <= 1000)
-                return false;
-            AddMeasurement(microsElapsed, 0, 0);
-            return true;
-        }
-    }
     return false;
 }
-
-#endif
 
 static int FilterValidPath(ImGuiInputTextCallbackData* data)
 {
@@ -359,7 +274,7 @@ int OnGui()
 		{
 			auto menuBarAvail = ImGui::GetContentRegionAvail();
 
-			const float width = ImGui::CalcTextSize("FPS12345FPS    FPS123456789FPS").x;
+			static const float width = ImGui::CalcTextSize("FPS12345FPS    FPS123456789FPS").x;
 
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (menuBarAvail.x - width));
 			ImGui::BeginGroup();
@@ -497,7 +412,7 @@ int OnGui()
 		}
 		else if (!io.KeyShift && pressedKeys[0] == ImGuiKey_Escape)
 		{
-			bool isFS = GUI::GetFullScreenState();;
+			bool isFS = GUI::GetFullScreenState();
 			//GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
 			isFullscreen = isFS;
 			if (isFullscreen && !fullscreenModeClosePopup && wasEscapeUp)
@@ -1170,7 +1085,10 @@ int OnGui()
 			{
 				for (size_t i = 0; i < availableAudioDevices.size(); i++)
 				{
+                    if(!availableAudioDevices[i].isInput) continue;
 					bool isSelected = (selectedPort == i);
+                    //char _buf[128];
+                    //sprintf_s(_buf, "%s (%s)", availableAudioDevices[i].friendlyName, availableAudioDevices[i].portName);
 					if (ImGui::Selectable(availableAudioDevices[i].friendlyName, isSelected, 0, { 0,0 }))
 					{
 						if (selectedPort != i)
@@ -1264,7 +1182,7 @@ int OnGui()
 
 		auto portItemsSize = ImGui::GetItemRectSize();
 
-		if (portItemsSize.x + restItemsSize.x + 30 < ImGui::GetContentRegionAvail().x)
+		if (portItemsSize.x + restItemsSize.x + style.WindowPadding.x + style.ItemSpacing.x < ImGui::GetContentRegionAvail().x)
 		{
 			ImGui::SameLine();
 			ImGui::Dummy({ -10, 0 });
@@ -1287,17 +1205,45 @@ int OnGui()
 		ImGui::BeginDisabled(isSelectedConnected);
 		if (ImGui::Checkbox("Internal Mode", &isInternalMode))
 		{
-			int bkpSelected = lastSelectedPort;
-			lastSelectedPort = selectedPort;
-			selectedPort = bkpSelected;
+            std::swap(lastSelectedPort, selectedPort);
 		}
 		ImGui::EndDisabled();
 		TOOLTIP("Uses a sensor connected to 3.5mm jack. (More info on Github)")
 
 		ImGui::SameLine();
 
-		if (ImGui::Checkbox("Audio Mode", &isAudioMode)) { }
-		TOOLTIP("Measures Audio Latency (Uses a microphone instead of photoresistor)");
+		if (ImGui::Checkbox("Audio Mode", &isAudioMode)) {
+            if(isAudioMode) {
+                isPlaybackDevConnected = audioProcessor.initialize() && audioProcessor.primePlaybackStream(availableAudioDevices[selectedOutputAudioDeviceIdx].id);
+            }
+            else if(!isAudioDevConnected && !isInternalMode)
+                audioProcessor.terminate();
+
+        }
+        static bool was_out_audio_dev_just_selected = false;
+        if(!was_out_audio_dev_just_selected && isAudioMode && ImGui::BeginPopupContextItem()) {
+            if (ImGui::BeginCombo("Output device", availableAudioDevices.empty() ? "No Audio Devices Found"
+                                                                             : availableAudioDevices[selectedOutputAudioDeviceIdx].friendlyName)) {
+
+                for (int i = 0; i < availableAudioDevices.size(); i++) {
+                    const auto &dev = availableAudioDevices[i];
+                    if(dev.isInput) continue;
+                    if(ImGui::Selectable(dev.friendlyName, i == selectedOutputAudioDeviceIdx)) {
+                        selectedOutputAudioDeviceIdx = i;
+                        isPlaybackDevConnected = audioProcessor.primePlaybackStream(availableAudioDevices[selectedOutputAudioDeviceIdx].id);
+                        //was_out_audio_dev_just_selected = true; // Uncomment to auto-close the popup on select
+                        break;
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+            ImGui::EndPopup();
+        }
+        else {
+            was_out_audio_dev_just_selected = false;
+        }
+		TOOLTIP(isAudioMode ? "[Right-Click to select output device] Measures Audio Latency (Uses a microphone instead of photoresistor)" : "Measures Audio Latency (Uses a microphone instead of photoresistor)");
 
 		if (isInternalMode) {
 			ImGui::SameLine();
@@ -1312,7 +1258,7 @@ int OnGui()
 			}
 			ImGui::EndDisabled();
 			auto itemSize = ImGui::GetItemRectSize();
-			float frac = ImClamp<float>(((curTime - lastInternalTest) / (float)(1000 * (uint64_t)WARMUP_AUDIO_BUFFER_SIZE / AUDIO_SAMPLE_RATE + (INTERNAL_TEST_DELAY))), 0, 1);
+			float frac = ImClamp<float>(((curTime - lastInternalTest) / (float)(1000 * (uint64_t)FRAMES_TO_CAPTURE / AUDIO_SAMPLE_RATE + (INTERNAL_TEST_DELAY))), 0, 1);
 			//ImGui::ProgressBar(frac);
 			cursorPos.y += ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset + style.FramePadding.y * 2 + ImGui::GetTextLineHeight() + 2;
 			cursorPos.x += 5;
@@ -1351,11 +1297,11 @@ int OnGui()
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Highest");
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.highest / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.highest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000.f);
 
 				ImGui::TableNextRow();
 
@@ -1373,11 +1319,11 @@ int OnGui()
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Lowest");
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.externalLatency.lowest / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.lowest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000);
+				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000.f);
 
 				ImGui::EndTable();
 			}
@@ -1483,7 +1429,7 @@ int OnGui()
 				TOOLTIP("%i\xC2\xB5s", reading.timeInternal);
 				ImGui::TableNextColumn();
 
-				ImGui::Text("%i", reading.timeExternal/1000);
+				ImGui::Text("%i", reading.timeExternal / 1000);
                 TOOLTIP("%i\xC2\xB5s", reading.timeExternal);
 				ImGui::TableNextColumn();
 
@@ -1522,17 +1468,6 @@ int OnGui()
 	static float detectionRectStart = 0;
 	ImGui::ResizeSeparator(detectionRectSize.y, detectionRectStart, ImGuiSeparatorFlags_Horizontal, {100, 400}, { avail.x, 6 });
 
-    // Start recording only when we actually change the color (Just an idea)
-    // I tested it and turns out it doesn't really make a difference );
-    //static SerialStatus last_serialStatus{serialStatus};
-    //
-    //if(serialStatus == Status_WaitingForResult && last_serialStatus != Status_WaitingForResult){
-    //    curAudioDevice->ClearRecordBuffer();
-    //    curAudioDevice->StartRecording();
-    //}
-    //
-    //last_serialStatus = serialStatus;
-
 	// Color change detection rectangle.
 	ImVec2 rectSize{ 0, detectionRectSize.y };
 	rectSize.x = detectionRectSize.x == 0 ? windowAvail.x + style.WindowPadding.x + style.FramePadding.x : detectionRectSize.x;
@@ -1549,7 +1484,7 @@ int OnGui()
 	//if (ImGui::IsItemFocused())
 	//	ImGui::SetFocusID(0, ImGui::GetCurrentWindow());
 
-	if (serialStatus == Status_Idle && currentUserData.performance.showPlots) {
+	if (isInternalMode && serialStatus == Status_Idle && currentUserData.performance.showPlots) {
 		ImGui::SetCursorPos(pos);
 		//rectSize.y -= style.WindowPadding.y/2;
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
@@ -1557,17 +1492,19 @@ int OnGui()
 		SetPlotLinesColor({ 1,1,1,0.5 });
 		//else
 		//	SetPlotLinesColor({ 0,0,0,0.5 });
-#ifdef _WIN32
-		if (curAudioDevice)
-			ImGui::PlotLines("##audioBufferPlot2", [](void* data, int idx) {return (float)curAudioDevice->recordBuffer[idx]; }, nullptr, TEST_AUDIO_BUFFER_SIZE, 0, 0, (long long)SHRT_MAX / -1, SHRT_MAX / 1, rectSize);
-#else
-        if (curAudioDevice)
-            ImGui::PlotLines("##audioBufferPlot2",[](void* data, int idx) {return (float)curAudioDevice->recordBuffer[idx < (TEST_AUDIO_BUFFER_SIZE / 2) ? (idx * 2) : (idx * 2 + 1 - (TEST_AUDIO_BUFFER_SIZE))]; },
-                             nullptr, TEST_AUDIO_BUFFER_SIZE/1, 0, 0,
-                             std::numeric_limits<AUDIO_DATA_FORMAT>::min(),
-                             std::numeric_limits<AUDIO_DATA_FORMAT>::max(), rectSize);
 
-#endif
+		if (isAudioDevConnected)
+			ImGui::PlotLines("##audioBufferPlot2",[](void* data, int idx) {
+                             return (float)audioProcessor.recordedSamples[idx];
+                             },
+                             nullptr,
+                             FRAMES_TO_CAPTURE / MAIN_BUFFER_SIZE_FRACTION,
+                             0,
+                             0,
+                             (long long)SHRT_MAX / -1,
+                             SHRT_MAX / 1,
+                             rectSize);
+
 		ImGui::PopStyleColor(3);
 		ImGui::PopStyleVar();
 	}
@@ -1600,15 +1537,7 @@ int OnGui()
 
 	if (isExiting)
 	{
-
-
-		//for (size_t i = 0; i < tabsInfo.size(); i++)
-		//{
-		//	if (!tabsInfo[i].isSaved)
-		//		unsavedTabs.push_back(i);
-		//}
-
-		if (unsavedTabs.size() > 0)
+		if (!unsavedTabs.empty())
 		{
 			isExitingWindowOpen = true;
 			selectedTab = unsavedTabs[0];
@@ -1630,7 +1559,7 @@ int OnGui()
 					ImGui::CloseCurrentPopup();
 					isExitingWindowOpen = false;
 					unsavedTabs.erase(unsavedTabs.begin());
-					if (unsavedTabs.size() > 0)
+					if (!unsavedTabs.empty())
 						selectedTab = unsavedTabs[0];
 					else
 						return 2;
@@ -1645,7 +1574,7 @@ int OnGui()
 				unsavedTabs.erase(unsavedTabs.begin());
 				isExitingWindowOpen = false;
 				//ImGui::EndPopup();
-				if (unsavedTabs.size() > 0)
+				if (!unsavedTabs.empty())
 					selectedTab = unsavedTabs[0];
 				else
 					return 2;
@@ -1746,7 +1675,7 @@ void GotSerialChar(char c)
 
 //#ifdef _WIN32
 			if (isAudioMode)
-				audioPlayer.Play();
+				audioProcessor.startPlayback();
 //#endif
 
 			if (isGameMode)
@@ -1758,9 +1687,9 @@ void GotSerialChar(char c)
 		if (resultNum == 0)
 			internalEndTime = std::chrono::high_resolution_clock::now();
 
-		// e for end (end of the numbers)
-		// All the code below will have to be moved to a separate function in the future when saving/loading from a file will be added. (Little did he know)
-		if (c == 'e')
+		// end of the numbers, m - millis, u - micros
+		// All the code below will have to be moved to a separate function in the future when saving/loading from a file will be added. (Update: Little did he know, it was not moved)
+		if (c == 'm' || c == 'u')
 		{
 			externalTime = 0;
 			internalTime = std::chrono::duration_cast<std::chrono::microseconds>(internalEndTime - internalStartTime).count();
@@ -1773,7 +1702,7 @@ void GotSerialChar(char c)
 			resultNum = 0;
 			std::fill_n(resultBuffer, resultBufferSize, 0);
 
-            externalTime *= External2Micros;
+            externalTime *= (c == 'u') ? 1 : 1000; //External2Micros;
 
 			if (_max(externalTime, internalTime) > 1000000 || _min(externalTime, internalTime) < 1000)
 			{
@@ -1821,11 +1750,11 @@ void GotSerialChar(char c)
 
 			//size_t size = tabsInfo[selectedTab].latencyData.measurements.size(); -1;
 			// account for the serial timeout delay (this is just an estimate)
-#ifdef _WIN32
-			internalTime -= 500000 / SERIAL_UPDATE_TIME;
-			externalTime -= 500000 / SERIAL_UPDATE_TIME;
-			pingTime -= 1000000 / SERIAL_UPDATE_TIME;
-#endif
+//#ifdef _WIN32
+//			internalTime -= 500000 / SERIAL_UPDATE_TIME;
+//			externalTime -= 500000 / SERIAL_UPDATE_TIME;
+//			pingTime -= 1000000 / SERIAL_UPDATE_TIME;
+//#endif
 			AddMeasurement(internalTime, externalTime, pingTime);
 
 			//tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
@@ -1856,204 +1785,22 @@ void GotSerialChar(char c)
 	lastTimeGotChar = std::chrono::high_resolution_clock::now();
 }
 
-// Will be removed in some later push
-#ifdef LocalSerial
-bool SetupSerialPort(char COM_Number)
-{
-	std::string serialCom = "\\\\.\\COM";
-	serialCom += COM_Number;
-	hPort = CreateFile(
-		serialCom.c_str(),
-		GENERIC_WRITE | GENERIC_READ,
-		0,
-		0,
-		OPEN_EXISTING,
-		FILE_FLAG_OVERLAPPED, // Make reading async
-		NULL
-	);
-
-	DCB serialParams;
-	serialParams.ByteSize = sizeof(serialParams);
-
-	if (!GetCommState(hPort, &serialParams))
-		return false;
-
-	serialParams.BaudRate = 19200; // Can be changed, but this value is fast enought not to introduce any significant latency and pretty reliable
-	serialParams.Parity = NOPARITY;
-	serialParams.ByteSize = 8;
-	serialParams.StopBits = ONESTOPBIT;
-
-	if (!SetCommState(hPort, &serialParams))
-		return false;
-
-	COMMTIMEOUTS timeout = { 0 };
-	timeout.ReadIntervalTimeout = MAXDWORD;
-	timeout.ReadTotalTimeoutConstant = 0;
-	timeout.ReadTotalTimeoutMultiplier = 0;
-	timeout.WriteTotalTimeoutConstant = 0;
-	timeout.WriteTotalTimeoutMultiplier = 0;
-
-	if (SetCommTimeouts(hPort, &timeout))
-		return false;
-
-	//SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
-
-	return true;
-}
-
-void HandleSerial()
-{
-	DWORD dwBytesTransferred;
-	DWORD dwCommModemStatus{};
-	BYTE byte = NULL;
-
-	/*
-	//if (ReadFile(hPort, &byte, 1, &dwBytesTransferred, NULL))
-	//	printf("Got: %c\n", byte);
-
-	//return;
-
-	//SetCommMask(hPort, EV_RXCHAR | EV_ERR); //receive character event
-	//WaitCommEvent(hPort, &dwCommModemStatus, 0); //wait for character
-
-	//if (dwCommModemStatus & EV_RXCHAR)
-	// Does not work.
-	//ReadFile(hPort, &byte, 1, NULL, NULL); //read 1
-	//else if (dwCommModemStatus & EV_ERR)
-	//	return;
-
-	//OVERLAPPED o = { 0 };
-	//o.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-
-	//SetCommMask(hPort, EV_RXCHAR);
-
-	//if (!WaitCommEvent(hPort, &dwCommModemStatus, &o))
-	//{
-	//	DWORD er = GetLastError();
-	//	if (er == ERROR_IO_PENDING)
-	//	{
-	//		DWORD dwRes = WaitForSingleObject(o.hEvent, 1);
-	//		switch (dwRes)
-	//		{
-	//			case WAIT_OBJECT_0:
-	//				if (ReadFile(hPort, &byte, 1, &dwRead, &o))
-	//					printf("Got: %c\n", byte);
-	//				break;
-	//		default:
-	//			printf("care off");
-	//			break;
-	//		}
-	//	}
-	//	// Check GetLastError for ERROR_IO_PENDING, if I/O is pending then
-	//	// use WaitForSingleObject() to determine when `o` is signaled, then check
-	//	// the result. If a character arrived then perform your ReadFile.
-	//}
-
-		*/
-
-	DWORD dwRead;
-	BOOL fWaitingOnRead = FALSE;
-
-	if (osReader.hEvent == NULL)
-	{
-		printf("Creating a new reader Event\n");
-		osReader.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	}
-
-	if (!fWaitingOnRead)
-	{
-		// Issue read operation.
-		if (!ReadFile(hPort, &byte, 1, &dwRead, &osReader))
-		{
-			if (GetLastError() != ERROR_IO_PENDING)
-				printf("IO Error");
-			else
-				fWaitingOnRead = TRUE;
-		}
-		else
-		{
-			// read completed immediately
-			if (dwRead)
-				GotSerialChar(byte);
-		}
-	}
-
-	const DWORD READ_TIMEOUT = 1;
-
-	DWORD dwRes;
-
-	if (fWaitingOnRead) {
-		dwRes = WaitForSingleObject(osReader.hEvent, READ_TIMEOUT);
-		switch (dwRes)
-		{
-			// Read completed.
-		case WAIT_OBJECT_0:
-			if (!GetOverlappedResult(hPort, &osReader, &dwRead, FALSE))
-				printf("IO Error");
-			// Error in communications; report it.
-			else
-				// Read completed successfully.
-				GotSerialChar(byte);
-
-			//  Reset flag so that another opertion can be issued.
-			fWaitingOnRead = FALSE;
-			break;
-
-			//case WAIT_TIMEOUT:
-			//	break;
-
-		default:
-			printf("Event Error");
-			break;
-		}
-	}
-
-	/*
-		//if (dwCommModemStatus & EV_RXCHAR) {
-		//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0); //read 1
-		//	printf("Got: %c\n", byte);
-		//}
-
-		//COMSTAT comStat;
-		//DWORD   dwErrors;
-		//int bytesToRead = ClearCommError(hPort, &dwErrors, &comStat);
-
-		//if (bytesToRead)
-		//{
-		//	ReadFile(hPort, &byte, 1, &dwBytesTransferred, 0);
-		//	printf("There are %i bytes to read", bytesToRead);
-		//	printf("Got: %c\n", byte);
-		//}
-		*/
-
-	if (byte == NULL)
-		return;
-
-
-		}
-
-void CloseSerial()
-{
-	CloseHandle(hPort);
-	CloseHandle(osReader.hEvent);
-}
-#endif
-
 bool SetupAudioDevice()
 {
-#ifdef _WIN32
-	int res = curAudioDevice->AddBuffer(WARMUP_AUDIO_BUFFER_SIZE);
-	if (res)
-		return false;
-
-	res = curAudioDevice->AddBuffer(TEST_AUDIO_BUFFER_SIZE, true);
-	if (res)
-		return false;
-
-	return true;
-#else
+//#ifdef _WIN32
+//	int res = curAudioDevice->AddBuffer(WARMUP_AUDIO_BUFFER_SIZE);
+//	if (res)
+//		return false;
+//
+//	res = curAudioDevice->AddBuffer(TEST_AUDIO_BUFFER_SIZE, true);
+//	if (res)
+//		return false;
+//
+//	return true;
+//#else
+//    return true;
+//#endif
     return true;
-#endif
 }
 
 // [lower, upper)
@@ -2067,17 +1814,13 @@ bool CanDoInternalTest(uint64_t timeNow)
     static int random_val = RandInRange(2, 10);
     static bool set_random_val = false; // used to generate only one random value for each returned true
             // this is because "rand()" is kinda slow and we want to reduce its usage as much as possible
-#ifdef _WIN32
-	if(isInternalMode && curAudioDevice && (timeNow > lastInternalTest + (INTERNAL_TEST_DELAY + random_val))) {
+
+	if(isInternalMode && isAudioDevConnected && (isPlaybackDevConnected || !isAudioMode) &&
+        (timeNow > lastInternalTest + (INTERNAL_TEST_DELAY + random_val))) {
+
         set_random_val = false;
         return true;
     }
-#else
-    if(isInternalMode && curAudioDevice && (timeNow > lastInternalTest + ((1000*WARMUP_AUDIO_BUFFER_SIZE / AUDIO_SAMPLE_RATE) + INTERNAL_TEST_DELAY + random_val))) {
-        set_random_val = false;
-        return true;
-    }
-#endif
 
     if(!set_random_val)
         random_val = RandInRange(80000, 400000); // 0.08 to 0.4 seconds delay (80ms to 400ms)
@@ -2087,94 +1830,48 @@ bool CanDoInternalTest(uint64_t timeNow)
 
 void DiscoverAudioDevices()
 {
-#ifdef _WIN32
-	AudioDeviceInfo* devices;
-	UINT devCount = GetAudioDevices(&devices);
-
-	availableAudioDevices.clear();
-
-	for (int i = 0; i < devCount; i++)
-	{
-		auto& dev = devices[i];
-		availableAudioDevices.push_back(cAudioDeviceInfo());
-
-		size_t _charsConverted;
-
-		int size_offset = 0;
-		int end_offset = 0;
-		if (wcsstr(dev.friendlyName, L"Microphone (") == dev.friendlyName) {
-			size_offset += 12;
-			end_offset += 1;
-		}
-
-		char* fName = new char[wcslen(dev.friendlyName) + 1 - size_offset];
-		wcstombs_s(&_charsConverted, fName, wcslen(dev.friendlyName) + 1 - size_offset, dev.friendlyName + size_offset, wcslen(dev.friendlyName));
-
-		fName[strlen(fName) - end_offset] = 0;
-
-		char* pName = new char[wcslen(dev.portName) + 1];
-		wcstombs_s(&_charsConverted, pName, wcslen(dev.portName) + 1, dev.portName, wcslen(dev.portName));
-
-		availableAudioDevices[i].friendlyName = fName;
-		availableAudioDevices[i].portName = pName;
-		availableAudioDevices[i].id = dev.id;
-		availableAudioDevices[i].WASAPI_id = dev.WASAPI_id;
-		availableAudioDevices[i].AudioEnchantments = dev.AudioEnchantments;
-	}
-
-	delete[] devices;
-
-#else
-
     availableAudioDevices.clear();
+    audioProcessor.initialize();
+    audioProcessor.GetAudioDevices(availableAudioDevices);
 
-    cAudioDeviceInfo* a_devs;
-    auto cnt = GetAudioDevices(&a_devs);
-    availableAudioDevices.reserve(cnt);
-    std::copy(a_devs, a_devs + cnt, std::back_inserter(availableAudioDevices));
-#ifdef _DEBUG
-    for(int i = 0; i < cnt; i++) {
-        printf("device %i: %s\n", a_devs[i].id, a_devs[i].friendlyName);
+    // Make sure current indexes aren't out of bounds
+    selectedPort %= availableAudioDevices.size();
+    selectedOutputAudioDeviceIdx %= availableAudioDevices.size();
+
+    bool in = false, out = false;
+    for(int i = 0; i < availableAudioDevices.size() && (!in || !out); i++) {
+        const auto& dev = availableAudioDevices[i];
+        if(dev.isInput && !in) {
+            in = true;
+            if(isInternalMode)
+                selectedPort = i;
+            else
+                lastSelectedPort = i;
+        }
+
+        if(!dev.isInput && !out) {
+            out = true;
+            selectedOutputAudioDeviceIdx = i;
+        }
     }
-#endif
-
-#endif
 }
 
 void StartInternalTest()
 {
-#ifdef _WIN32
 	if (!CanDoInternalTest())
 		return;
 
-	serialStatus = Status_AudioReadying;
-
+	serialStatus = Status_WaitingForResult;
 	lastInternalTest = micros();
+    audioProcessor.startRecording();
 
-	if (curAudioDevice->GetPlayTime().u.sample > 0)
-		curAudioDevice->ResetRecording();
-	else
-		curAudioDevice->StartRecording();
-
-#else
-    if (!CanDoInternalTest())
-        return;
-
-    //audioPlayer.SetBuffer([](int i){return rand();}, 1);
-    audioPlayer.PrepareBuffer();
-    if (isAudioMode)
-        audioPlayer.Play();
-
-    if (isGameMode)
-        mouseClick();
-
-    serialStatus = Status_WaitingForResult;
-    curAudioDevice->ClearRecordBuffer();
-    curAudioDevice->StartRecording();
-    lastInternalTest = micros();
-
-    //printf("TEST DONE!\n");
+#ifdef _DEBUG
+    auto took = micros() - lastInternalTest;
+    printf("starting Rec took %lldus\n", took);
 #endif
+
+    if (isAudioMode)
+        audioProcessor.startPlayback();
 }
 
 #ifdef _WIN32
@@ -2210,33 +1907,42 @@ void AttemptConnect()
 {
 	if (isInternalMode && !availableAudioDevices.empty())
 	{
-#ifdef _WIN32
-        delete curAudioDevice;
+        if(isAudioDevConnected)
+            audioProcessor.terminate();
 
-		curAudioDevice = new Waveform_SoundHelper(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 2u, AUDIO_SAMPLE_RATE, 16u, (DWORD_PTR)waveInCallback);
-		if (curAudioDevice && curAudioDevice->isCreated)
-			isAudioDevConnected = true;
+        selectedPort %= availableAudioDevices.size();
+        selectedOutputAudioDeviceIdx %= availableAudioDevices.size();
+        isAudioDevConnected = audioProcessor.initialize() && audioProcessor.primeRecordingStream(availableAudioDevices[selectedPort].id);
 
-		isAudioDevConnected = SetupAudioDevice();
-
-		if (isAudioDevConnected)
-			SetAudioEnchantments(false, availableAudioDevices[selectedPort].WASAPI_id);
-
-#else
-
-
-        delete curAudioDevice;
-
-        //curAudioDevice = new ALSA_RecDevice(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 1u, AUDIO_SAMPLE_RATE, 16u);
-        curAudioDevice = new ALSA_RecDevice<AUDIO_DATA_FORMAT>(availableAudioDevices[selectedPort].id, TEST_AUDIO_BUFFER_SIZE, AUDIO_SAMPLE_RATE);
-        if (curAudioDevice != nullptr && curAudioDevice->isCreated) {
-            isAudioDevConnected = SetupAudioDevice();
-        }
-        else {
-            delete curAudioDevice;
-            curAudioDevice = nullptr;
-        }
-#endif
+        if(isAudioMode)
+            isPlaybackDevConnected = audioProcessor.primePlaybackStream(availableAudioDevices[selectedOutputAudioDeviceIdx].id);
+//#ifdef _WIN32
+//        delete curAudioDevice;
+//
+//		curAudioDevice = new Waveform_SoundHelper(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 2u, AUDIO_SAMPLE_RATE, 16u, (DWORD_PTR)waveInCallback);
+//		if (curAudioDevice && curAudioDevice->isCreated)
+//			isAudioDevConnected = true;
+//
+//		isAudioDevConnected = SetupAudioDevice();
+//
+//		if (isAudioDevConnected)
+//			SetAudioEnchantments(false, availableAudioDevices[selectedPort].WASAPI_id);
+//
+//#else
+//
+//
+//        delete curAudioDevice;
+//
+//        //curAudioDevice = new ALSA_RecDevice(availableAudioDevices[selectedPort].id, AUDIO_BUFFER_SIZE, 1u, AUDIO_SAMPLE_RATE, 16u);
+//        curAudioDevice = new ALSA_RecDevice<AUDIO_DATA_FORMAT>(availableAudioDevices[selectedPort].id, TEST_AUDIO_BUFFER_SIZE, AUDIO_SAMPLE_RATE);
+//        if (curAudioDevice != nullptr && curAudioDevice->isCreated) {
+//            isAudioDevConnected = SetupAudioDevice();
+//        }
+//        else {
+//            delete curAudioDevice;
+//            curAudioDevice = nullptr;
+//        }
+//#endif
 	}
 	else if(!Serial::availablePorts.empty())
 		Serial::Setup(Serial::availablePorts[selectedPort].c_str(), GotSerialChar);
@@ -2246,27 +1952,29 @@ void AttemptDisconnect()
 {
 	if (isInternalMode)
 	{
-#ifdef _WIN32
-		curAudioDevice->StopRecording();
-
-		SetAudioEnchantments(availableAudioDevices[selectedPort].AudioEnchantments, availableAudioDevices[selectedPort].WASAPI_id);
-
-		if (curAudioDevice)
-			delete curAudioDevice;
-
-		curAudioDevice = nullptr;
-
-		isAudioDevConnected = false;
-#else
-        //curAudioDevice->StopRecording();
-
-        if (curAudioDevice)
-            delete curAudioDevice;
-
-        curAudioDevice = nullptr;
-
+        audioProcessor.terminate();
         isAudioDevConnected = false;
-#endif
+//#ifdef _WIN32
+//		curAudioDevice->StopRecording();
+//
+//		SetAudioEnchantments(availableAudioDevices[selectedPort].AudioEnchantments, availableAudioDevices[selectedPort].WASAPI_id);
+//
+//		if (curAudioDevice)
+//			delete curAudioDevice;
+//
+//		curAudioDevice = nullptr;
+//
+//		isAudioDevConnected = false;
+//#else
+//        //curAudioDevice->StopRecording();
+//
+//        if (curAudioDevice)
+//            delete curAudioDevice;
+//
+//        curAudioDevice = nullptr;
+//
+//        isAudioDevConnected = false;
+//#endif
 	}
 	else {
 		Serial::Close();
@@ -2482,21 +2190,53 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 #endif
 
-//void RawInputEvent(RAWINPUT* ri)
-//{
-//	if (ri->header.dwType == RIM_TYPEMOUSE)
-//	{
-//		if ((ri->data.mouse.usButtonFlags & RI_MOUSE_BUTTON_1_DOWN) == RI_MOUSE_BUTTON_1_DOWN) {
-//			moddedMouseTimeClicked = std::chrono::high_resolution_clock::now();
-//			wasModdedMouseTimeUpdated = true;
-//			//printf("mouse button pressed\n");
-//		}
-//	}
-//}
-
 // Main code
 int main(int argc, char** argv)
 {
+    //Pa_Initialize();
+    //PaStream *inputStream, *outputStream;
+    //PaStreamParameters inputParams, outputParams;
+    //std::vector<float> recordedSamples;
+    //
+    //inputParams.device = Pa_GetDefaultInputDevice();
+    //inputParams.channelCount = NUM_CHANNELS;
+    //inputParams.sampleFormat = paFloat32;
+    //inputParams.suggestedLatency = Pa_GetDeviceInfo(inputParams.device)->defaultLowInputLatency;
+    //inputParams.hostApiSpecificStreamInfo = nullptr;
+    //
+    //outputParams.device = Pa_GetDefaultOutputDevice();
+    //outputParams.channelCount = NUM_CHANNELS;
+    //outputParams.sampleFormat = paFloat32;
+    //outputParams.suggestedLatency = Pa_GetDeviceInfo(outputParams.device)->defaultLowOutputLatency;
+    //outputParams.hostApiSpecificStreamInfo = nullptr;
+    //
+    //Pa_OpenStream(&inputStream, &inputParams, nullptr, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff, recordCallback, &recordedSamples);
+    //Pa_OpenStream(&outputStream, nullptr, &outputParams, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff, playbackCallback, &recordedSamples);
+    //
+    //while (true) {
+    //    recordedSamples.clear();
+    //    playbackIndex = 0;
+    //
+    //    // Start recording
+    //    Pa_StartStream(inputStream);
+    //    std::this_thread::sleep_for(std::chrono::seconds(RECORD_SECONDS));
+    //    Pa_StopStream(inputStream);
+    //
+    //    // Start playback
+    //    Pa_StartStream(outputStream);
+    //    std::this_thread::sleep_for(std::chrono::seconds(RECORD_SECONDS));
+    //    Pa_StopStream(outputStream);
+    //
+    //    // Short delay before the next cycle
+    //    std::this_thread::sleep_for(std::chrono::seconds(1));
+    //}
+
+    //Pa_CloseStream(inputStream);
+    //Pa_CloseStream(outputStream);
+    //Pa_Terminate();
+
+    //return 0;
+
 #ifdef _WIN32
 	GUI::Setup(OnGui);
 #else
@@ -2507,6 +2247,9 @@ int main(int argc, char** argv)
 	GUI::onExitFunc = OnExit;
 
 	srand(time(NULL));
+
+    //AudioProcessor audioProcessor;
+    audioProcessor.initialize();
 		
 	//localPath = argv[0];
 
@@ -2522,7 +2265,7 @@ int main(int argc, char** argv)
 #ifndef _DEBUG
 	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
 #else
-	::ShowWindow(::GetConsoleWindow(), SW_SHOW);
+	//::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 #endif
 #endif
 
@@ -2648,18 +2391,18 @@ int main(int argc, char** argv)
 
 	Serial::FindAvailableSerialPorts();
 
-	printf("Found %lld serial Ports\n", Serial::availablePorts.size());
+	printf("Found %zu serial Ports\n", Serial::availablePorts.size());
 
 	DiscoverAudioDevices();
 
-
-#ifdef _WIN32
-	audioPlayer.Setup();
-#endif
     // Setup Audio buffer (with noise)
-	audioPlayer.SetBuffer([](int i) { return ((rand() * 2 - RAND_MAX) % RAND_MAX) * 10; });
+	//audioPlayer.SetBuffer([](int i) { return ((rand() * 2 - RAND_MAX) % RAND_MAX) * 10; });
 	//audioPlayer.SetBuffer([](int i) { return rand() % SHRT_MAX; });
 	//audioPlayer.SetBuffer([](int i) { return (int)(sinf(i/4.f) * RAND_MAX); });
+    audioProcessor.playbackSamples.resize(2000);
+    for (int i = 0; i < audioProcessor.playbackSamples.size(); i++)
+        audioProcessor.playbackSamples[i] = sinf(i / 10.f) * SHRT_MAX;
+        //audioProcessor.playbackSamples[i] = rand();
 
 
 	//if (Serial::Setup("COM4", GotSerialChar))
@@ -2698,27 +2441,29 @@ MainLoop:
 	// Main Loop
 	while (!done)
 	{
-		//Serial::HandleInput();
+        uint64_t curTime = micros();
 
-		//if(isGameMode)
-		//	HandleGameMode();
+        if(isInternalMode && isAudioDevConnected) {
+            static bool is_proc_reset = false;
 
-        // Update Audio Input (Linux)
-#ifdef __linux__
-
-        if(isInternalMode && curAudioDevice && curAudioDevice->isRecording) {
-            bool res = curAudioDevice->UpdateState();
-            if (res) {
-                //printf("Got results!\n");
-                serialStatus = Status_Idle;
-                AnalyzeData();
+            if(!is_proc_reset && serialStatus == Status_WaitingForResult) {
+                is_proc_reset = true;
+            }
+            // checks if the audio processor ended writing to the (whole) buffer
+            if(is_proc_reset && serialStatus == Status_Idle && (curTime - lastInternalTest) > (1000 * (uint64_t)FRAMES_TO_CAPTURE / AUDIO_SAMPLE_RATE + (INTERNAL_TEST_DELAY))) {
+#ifdef _DEBUG
+                printf("Buffer Ended\n");
+#endif
+                audioProcessor.stopRecording();
+                audioProcessor.restart();
+                audioProcessor.primeRecordingStream(availableAudioDevices[selectedPort].id);
+                if(isAudioMode)
+                    audioProcessor.primePlaybackStream(availableAudioDevices[selectedOutputAudioDeviceIdx].id);
+                is_proc_reset = false;
             }
         }
 
-#endif
-
 		// GUI Loop
-		uint64_t curTime = micros();
 		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ?
 			(GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 :
 			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps || currentUserData.performance.VSync)
@@ -2786,7 +2531,7 @@ MainLoop:
             //    printf("rendered %lius too late!\n", -static_cast<int64_t>(nextFrameIn));
 
             if (lastFrameGui + frameTime > micros() + lastFrameRenderTime)
-                std::this_thread::sleep_for(std::chrono::microseconds(nextFrameIn - 60));
+                std::this_thread::sleep_for(std::chrono::microseconds(nextFrameIn - 32));
 
             //last_nextFrameIn = nextFrameIn;
         }
@@ -2804,14 +2549,12 @@ MainLoop:
 		goto MainLoop;
 	}
 
+    if (isAudioDevConnected) {
+        audioProcessor.stopRecording();
+        //delete curAudioDevice;
+    }
 #ifdef _WIN32
-	if (curAudioDevice) {
-		curAudioDevice->StopRecording();
-		delete curAudioDevice;
-	}
 	timeEndPeriod(tc.wPeriodMin);
-#else
-    delete curAudioDevice;
 #endif
 
 	Serial::Close();

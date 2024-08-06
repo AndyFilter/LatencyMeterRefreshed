@@ -277,13 +277,13 @@ int GUI::DrawGui() noexcept
 }
 
 bool GUI::GetFullScreenState() {
-	bool state = false;
-	GUI::g_pSwapChain->GetFullscreenState((BOOL*)&state, nullptr);
+	BOOL state = false;
+	GUI::g_pSwapChain->GetFullscreenState(&state, nullptr);
 
 	return state;
 }
 
-int GUI::SetFullScreenState(bool state) {
+int GUI::SetFullScreenState(BOOL state) {
 	return GUI::g_pSwapChain->SetFullscreenState(state, nullptr);
 }
 
