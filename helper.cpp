@@ -601,6 +601,7 @@ namespace helper {
         {
             for (auto& tab : tabsInfo) {
                 strncpy_s(tab.savePathPack, filename, MAX_PATH);
+                tab.savePathPack[strlen(filename)] = 0;
             }
 
             SavePackMeasurements();
@@ -621,6 +622,7 @@ namespace helper {
             }
             for (auto& tab : tabsInfo) {
                 file.copy(tab.savePathPack, MAX_PATH);
+                tab.savePathPack[file.size()] = 0;
             }
             SavePackMeasurements();
         }

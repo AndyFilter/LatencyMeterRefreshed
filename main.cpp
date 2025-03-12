@@ -842,7 +842,6 @@ int OnGui()
 			char tabClosePopupName[48];
 			snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", tabN);
 
-			static bool tabExitOpen = true;
 			bool openTabClose = false;
 
 			if (ImGui::IsItemFocused())
@@ -856,7 +855,6 @@ int OnGui()
 						if (!tabsInfo[tabN].isSaved)
 						{
 							ImGui::OpenPopup(tabClosePopupName);
-							tabExitOpen = true;
 						}
 						else
 						{
@@ -889,7 +887,6 @@ int OnGui()
 							if (!tabsInfo[tabN].isSaved)
 							{
 								ImGui::OpenPopup(tabClosePopupName);
-								tabExitOpen = true;
 							}
 							else
 							{
@@ -962,11 +959,11 @@ int OnGui()
 
 			if (openTabClose)
 			{
-				tabExitOpen = true;
 				ImGui::OpenPopup(tabClosePopupName);
+				printf("Open close!\n");
 			}
 
-			if (ImGui::BeginPopupModal(tabClosePopupName, &tabExitOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+			if (ImGui::BeginPopupModal(tabClosePopupName, nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
 			{
 				ImGui::Text("Are you sure you want to close this tab?\nAll measurements will be lost if you don't save");
 
@@ -981,20 +978,17 @@ int OnGui()
 					if (SaveMeasurements())
 						deletedTabIndex = tabN;
 					ImGui::CloseCurrentPopup();
-					tabExitOpen = false;
 				}
 				ImGui::SameLine();
 				if (ImGui::Button("Discard", { popupAvail.x / 3, 0 }))
 				{
 					deletedTabIndex = tabN;
 					ImGui::CloseCurrentPopup();
-					tabExitOpen = false;
 				}
 				ImGui::SameLine();
 				if (ImGui::Button("Cancel", { popupAvail.x / 3, 0 }))
 				{
 					ImGui::CloseCurrentPopup();
-					tabExitOpen = false;
 				}
 
 				ImGui::EndPopup();
@@ -1283,13 +1277,13 @@ int OnGui()
 				ImGui::TableNextRow();
 
 				ImGui::TableSetColumnIndex(1);
-				ImGui::Text("Internal");
+				ImGui::Text("Internal [ms]");
 				TOOLTIPFONT("Time measured by the computer from the moment it got the start signal (button press) to the signal that the light intensity change was spotted");
 				ImGui::TableNextColumn();
-				ImGui::Text("External");
+				ImGui::Text("External [ms]");
 				TOOLTIPFONT("Time measured by the microcontroller from the button press to the change of light intensity");
 				ImGui::TableNextColumn();
-				ImGui::Text("Input");
+				ImGui::Text("Input [ms]");
 				TOOLTIPFONT("Time between computer sending a message to the microcontroller and receiving it back (Ping)");
 
 				ImGui::TableNextRow();
@@ -1533,31 +1527,38 @@ int OnGui()
 		ImGui::EndPopup();
 	}
 
-	static bool isExitingWindowOpen = false;
-
 	if (isExiting)
 	{
 		if (!unsavedTabs.empty())
 		{
-			isExitingWindowOpen = true;
 			selectedTab = unsavedTabs[0];
 			ImGui::OpenPopup("Exit?");
 		}
 
-		if (ImGui::BeginPopupModal("Exit?", &isExitingWindowOpen, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Exit?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::Text("Are you sure you want to exit before saving?");
 			ImGui::SameLine();
-			ImGui::TextUnformatted(tabsInfo[selectedTab].name);
+			ImGui::Text("(%s)", tabsInfo[unsavedTabs.front()].name);
 
 			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
 
-			if (ImGui::Button("Save and exit"))
+			float button_padding = style.FramePadding.x * 2;
+			float exit_button_width = ImGui::CalcTextSize("Exit").x + button_padding;
+			float exit_save_button_width = ImGui::CalcTextSize("Exit and save").x + button_padding;
+			float cancel_button_width = ImGui::CalcTextSize("Cancel").x + button_padding;
+			float totalTextWidth = exit_button_width + exit_save_button_width + cancel_button_width;
+
+			float available_width = ImGui::GetContentRegionAvail().x - (2 * style.ItemSpacing.x);
+
+			float scale = available_width / totalTextWidth;
+
+			if (ImGui::Button("Save and exit", {exit_save_button_width * scale, 0}))
 			{
 				if (SaveMeasurements())
 				{
 					ImGui::CloseCurrentPopup();
-					isExitingWindowOpen = false;
+					tabsInfo.erase(tabsInfo.begin() + unsavedTabs.front());
 					unsavedTabs.erase(unsavedTabs.begin());
 					if (!unsavedTabs.empty())
 						selectedTab = unsavedTabs[0];
@@ -1567,25 +1568,30 @@ int OnGui()
 				else
 					printf("Could not save the file");
 			}
+
 			ImGui::SameLine();
-			if (ImGui::Button("Exit"))
+			if (ImGui::Button("Exit", {exit_button_width * scale, 0}))
 			{
 				ImGui::CloseCurrentPopup();
+				tabsInfo.erase(tabsInfo.begin() + unsavedTabs.front());
 				unsavedTabs.erase(unsavedTabs.begin());
-				isExitingWindowOpen = false;
 				//ImGui::EndPopup();
 				if (!unsavedTabs.empty())
 					selectedTab = unsavedTabs[0];
 				else
 					return 2;
 			}
+
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel"))
+			if (ImGui::Button("Cancel", {cancel_button_width * scale, 0}))
 			{
 				ImGui::CloseCurrentPopup();
-				isExitingWindowOpen = false;
 				isExiting = false;
+#ifndef _WIN32
+				glfwSetWindowShouldClose(GUI::window, false);
+#endif
 			}
+
 			ImGui::EndPopup();
 		}
 	}

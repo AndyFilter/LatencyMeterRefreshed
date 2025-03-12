@@ -613,7 +613,7 @@ void GUI::Destroy() noexcept {
 }
 
 int GUI::DrawGui() noexcept {
-    if(glfwWindowShouldClose(window))
+    if(glfwWindowShouldClose(window) && (!onExitFunc || onExitFunc()))
         return 1;
 
     glfwSwapInterval(*VSyncFrame);

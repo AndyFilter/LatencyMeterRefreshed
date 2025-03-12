@@ -15,9 +15,9 @@ Are you interested in measuring the latency of your system, but can't afford a *
 - A photoresistor (I don't think the type really matters, but mine seems to be working from 300Ω to 5MΩ).
 - Like a 500Ω resistor (Not required. On Arduino Uno you can use built-in pullup resistor).
 - A button.
-- Windows 10 / 11(not tested) and basic knowledge of using it.
+- Windows 10 / 11(not tested) or Linux and basic knowledge of using it.
   
-  # How to install
+# How to install
 1. Make sure you are in possession of an **Arduino** or other microcontroller that allows for serial communication with a PC.
 2. Connect the Arduino to the other elements as follows:
 

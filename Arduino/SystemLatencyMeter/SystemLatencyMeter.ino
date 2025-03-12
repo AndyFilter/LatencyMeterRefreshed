@@ -7,8 +7,8 @@
 const int LDR = A0;
 const int button = 2;
 
-#define THRESHOLD_RELATIVE 1.02f  // the sensor value has to be 2% higher than the base value to count as change
-#define THRESHOLD_ABSOLUTE 3
+#define THRESHOLD_RELATIVE 1.03f  // the sensor value has to be 3% higher than the base value to count as change
+#define THRESHOLD_ABSOLUTE 4
 
 int LDRValue = 0;
 int LastLDR = 0;
@@ -54,7 +54,7 @@ void loop() {
     buttonState = digitalRead(button);
   #endif
     
-    // 375203 is used, because it's a prime. It's just 3.7 seconds
+    // 375203 is used, because it's a prime. It's just 0.37 seconds
     if(buttonState == LOW && (timingFunc() - Started > 375203)) 
     {
       Started = timingFunc();
