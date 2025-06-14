@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <string>
 #include "constants.h"
 
 enum SerialStatus
@@ -38,7 +39,7 @@ struct LatencyReading
 {
 	unsigned int timeExternal; // in micros
 	unsigned int timeInternal; // in micros
-	unsigned int timePing; // in micros
+	unsigned int timeInput; // in micros
 	unsigned int index;
 };
 
@@ -69,14 +70,45 @@ struct TabInfo
 	LatencyStats latencyStats {};
 
 	bool isSaved = true;
-	char savePath[260]{ 0 };
-	char savePathPack[260]{ 0 };
+	char savePath[MAX_PATH]{ 0 };
+	char savePathPack[MAX_PATH]{ 0 };
 
-    int saved_ver = json_version;
+    int saved_ver = JSON_VERSION;
 
 	char name[TAB_NAME_MAX_SIZE]{ "Tab " };
-};
 
+    std::string ExportAsCSV() {
+        std::string res;
+
+        res += name;
+        res += CSV_SEP;
+        res += "Internal Latency [ms]"; res += CSV_SEP;
+        res += "External Latency [ms]"; res += CSV_SEP;
+        res += "Input Latency [ms]"; res += CSV_SEP;
+
+        // Add all measurements
+        for (int i = 0; i < latencyData.measurements.size(); i++) {
+            res += '\n';
+            res += std::to_string(i) + CSV_SEP;
+            res += std::to_string(latencyData.measurements[i].timeInternal / 1000.0) + CSV_SEP;
+            res += std::to_string(latencyData.measurements[i].timeExternal / 1000.0) + CSV_SEP;
+            res += std::to_string(latencyData.measurements[i].timeInput / 1000.0) + CSV_SEP;
+        }
+
+        // Add statistics
+        res += "\n\n";
+        res += "Average:\nType"; res += CSV_SEP;
+        res += "Internal Latency [ms]"; res += CSV_SEP;
+        res += "External Latency [ms]"; res += CSV_SEP;
+        res += "Input Latency [ms]"; res += CSV_SEP;
+        res += "\nLatency"; res += CSV_SEP;
+        res += std::to_string(latencyStats.internalLatency.average / 1000.0) + CSV_SEP;
+        res += std::to_string(latencyStats.externalLatency.average / 1000.0) + CSV_SEP;
+        res += std::to_string(latencyStats.inputLatency.average / 1000.0) + CSV_SEP;
+
+        return res;
+    }
+};
 
 struct StyleData
 {

@@ -160,7 +160,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Audio\Sound_Helper.cpp" />
+    <ClCompile Include="Audio\AudioProcessor.cpp" />
     <ClCompile Include="External\ImGui\imgui.cpp" />
     <ClCompile Include="External\ImGui\imgui_demo.cpp" />
     <ClCompile Include="External\ImGui\imgui_draw.cpp" />
@@ -170,13 +170,13 @@
     <ClCompile Include="External\ImGui\imgui_tables.cpp" />
     <ClCompile Include="External\ImGui\imgui_widgets.cpp" />
     <ClCompile Include="gui.cpp" />
-    <ClCompile Include="helper.cpp" />
-    <ClCompile Include="helperJson.cpp" />
+    <ClCompile Include="Helpers\AppHelper.cpp" />
+    <ClCompile Include="Helpers\JsonHelper.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="serial.cpp" />
+    <ClCompile Include="Serial\Serial.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Audio\Sound_Helper.h" />
+    <ClInclude Include="Audio\AudioProcessor.h" />
     <ClInclude Include="constants.h" />
     <ClInclude Include="External\ImGui\imconfig.h" />
     <ClInclude Include="External\ImGui\imgui.h" />
@@ -188,12 +188,12 @@
     <ClInclude Include="External\ImGui\imstb_textedit.h" />
     <ClInclude Include="External\ImGui\imstb_truetype.h" />
     <ClInclude Include="Fonts.h" />
-    <ClInclude Include="helper.h" />
-    <ClInclude Include="helperJson.h" />
+    <ClInclude Include="Helpers\AppHelper.h" />
+    <ClInclude Include="Helpers\JsonHelper.h" />
     <ClInclude Include="External\nlohmann\json.hpp" />
     <ClInclude Include="gui.h" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="serial.h" />
+    <ClInclude Include="Serial\Serial.h" />
     <ClInclude Include="structs.h" />
   </ItemGroup>
   <ItemGroup>

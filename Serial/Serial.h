@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <thread>
-#include "constants.h"
+#include "../constants.h"
 
 #ifdef _WIN32
 #include <io.h>

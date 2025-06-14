@@ -23,6 +23,7 @@ void ApplyImGuiStyle() {
     style.PopupRounding = 3.0f;
     style.GrabRounding = 4.0f;
     style.FrameBorderSize = 0.5f;
+	style.SeparatorTextBorderSize = 2.0;
 
     ImVec4* colors = style.Colors;
     //colors[ImGuiCol_Text] = ImVec4(0.8f, 0.8f, 0.8f, 1);

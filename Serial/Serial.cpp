@@ -1,7 +1,7 @@
 #include <string>
 #include <ostream>
 #include <iostream>
-#include "serial.h"
+#include "Serial.h"
 
 const unsigned char BYTES_TO_READ = 8; // This value is arbitrary, but the normal data send consists of "e" + {1-4 digits}.
                                     // Which in total makes 5 bytes, add 3 just to be sure it all gets read.
@@ -18,7 +18,7 @@ OVERLAPPED osReader{ 0 };
 //char buffer[256]{ 0 };
 
 static bool isSafeToClose = false;
-static LARGE_INTEGER StartingTime{ 0 };
+static LARGE_INTEGER g_StartingTime{ 0 };
 uint64_t micros1();
 
 static void (*OnCharReceived)(char c);
@@ -459,7 +459,7 @@ uint64_t micros1()
 	QueryPerformanceFrequency(&Frequency);
 
 	QueryPerformanceCounter(&EndingTime);
-	ElapsedMicroseconds.QuadPart = EndingTime.QuadPart - StartingTime.QuadPart;
+	ElapsedMicroseconds.QuadPart = EndingTime.QuadPart - g_StartingTime.QuadPart;
 
 	ElapsedMicroseconds.QuadPart *= 1000000;
 	ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
@@ -469,33 +469,37 @@ uint64_t micros1()
 
 #else
 #include <cstring>
-#include <termios.h> // Contains POSIX terminal control definitions
+#include <termios.h>
 #include <csignal>
+#include <filesystem>
+
+// Introduced constants for clarity.
+constexpr speed_t BAUD_RATE_VALUE = B19200;
+constexpr unsigned char kBytesToRead = 8;
 
 namespace fs = std::filesystem;
 
-#define BAUD_RATE B19200
+// Renamed global variable for clarity
+bool g_canRead = true;
 
-bool can_read = true;
-
-void ReadIO(int serialPort, void (*OnCharReceivedFunc)(char c)) {
-    while(true) {
-        unsigned char buf[8];
-        if(!can_read)
+// Renamed function and parameters for clarity
+void ReadSerialData(int serialPort, void (*onCharReceived)(char c)) {
+    while (true) {
+        unsigned char readBuffer[kBytesToRead];
+        if (!g_canRead) {
             break;
-
-        if(int n = read(serialPort, buf, BYTES_TO_READ); n > 0) {
-            for(int i = 0; i < n; i++) {
-                OnCharReceivedFunc(buf[i]);
+        }
+        int bytesRead = read(serialPort, readBuffer, kBytesToRead);
+        if (bytesRead > 0) {
+            for (int i = 0; i < bytesRead; i++) {
+                onCharReceived(readBuffer[i]);
             }
         }
-
-        //usleep(100);
     }
 }
 
-bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c)) {
-    std::string dev_name = std::string("/dev/tty") + szPortName;
+bool Serial::Setup(const char *portName, void (*onCharReceived)(char c)) {
+    std::string dev_name = std::string("/dev/tty") + portName;
     isConnected = false;
 
     hPort = open(dev_name.c_str(), O_RDWR);
@@ -523,8 +527,8 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c)) {
                             // because it's a separate thread. This reduces CPU usage by about ~50%
     tty.c_cc[VMIN] = 0;
 
-    cfsetispeed(&tty, BAUD_RATE);
-    cfsetospeed(&tty, BAUD_RATE);
+    cfsetispeed(&tty, BAUD_RATE_VALUE);
+    cfsetospeed(&tty, BAUD_RATE_VALUE);
 
     // Save tty settings, also checking for error
     if (tcsetattr(hPort, TCSANOW, &tty) != 0) {
@@ -532,42 +536,40 @@ bool Serial::Setup(const char* szPortName, void (*OnCharReceivedFunc)(char c)) {
         return false;
     }
 
-    ioThread = std::thread(ReadIO, hPort, OnCharReceivedFunc);
-
+    ioThread = std::thread(ReadSerialData, hPort, onCharReceived);
     isConnected = true;
     return true;
-};
+}
 
 //void HandleInput();
 void Serial::Close() {
-    if(!isConnected)
-        return;
+    if (!isConnected) return;
     ioThread.detach();
     isConnected = false;
     close(hPort);
-};
+}
 
 void Serial::FindAvailableSerialPorts() {
     availablePorts.clear();
     std::string path = "/dev";
-    for (const auto & entry : fs::directory_iterator(path)) {
-        if(entry.path().filename().string().find("ttyACM") != std::string::npos) {
-            availablePorts.push_back(entry.path().filename().string().substr(3, -1));
+    for (const auto &entry: fs::directory_iterator(path)) {
+        if (entry.path().filename().string().find("ttyACM") != std::string::npos) {
+            availablePorts.push_back(entry.path().filename().string().substr(3));
 #ifdef _DEBUG
             std::cout << entry.path() << std::endl;
 #endif
         }
     }
-};
+}
 
-bool Serial::Write(const char* c, size_t size) {
-    can_read = false;
+bool Serial::Write(const char *c, size_t size) {
+    g_canRead = false;
     usleep(100);
     auto written = write(hPort, c, size);
-    can_read = true;
+    g_canRead = true;
+    return (written == static_cast<ssize_t>(size));
+}
 
-    return written == size;
-};
 
 
 #endif

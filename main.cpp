@@ -7,19 +7,21 @@
 #include <fstream>
 #include <cstring>
 
-#include "serial.h"
+#include "Serial/Serial.h"
 #include "External/ImGui/imgui.h"
 #include "External/ImGui/imgui_internal.h"
 #include "structs.h"
-#include "helperJson.h"
+#include "Helpers/JsonHelper.h"
 #include "constants.h"
 #include "gui.h"
-#include "Audio/Sound_Helper.h"
+#include "Audio/AudioProcessor.h"
 #include "External/ImGui/imgui_extensions.h"
 #include <algorithm>
-#include "helper.h"
+#include <atomic>
 
-using namespace helper;
+#include "Helpers/AppHelper.h"
+
+using namespace AppHelper;
 
 
 ImVec2 detectionRectSize{ 0, 200 };
@@ -33,50 +35,28 @@ const unsigned int AVERAGE_FRAME_COUNT = 1000;
 uint64_t frames[AVERAGE_FRAME_COUNT]{ 0 };
 unsigned long long totalFrames = 0;
 
-bool AnalyzeData();
+bool AnalyzeAudioData();
 
 // ---- Functionality ----
 
-SerialStatus serialStatus = Status_Idle;
+std::atomic<SerialStatus> serialStatus = Status_Idle;
 
 int selectedPort = 0;
 int lastSelectedPort = 0;
 
 InputMode selectedMode = InputMode_Normal;
 
-uint64_t lastInternalTest = 0;
+std::atomic<uint64_t> lastInternalTest = 0;
 bool isAudioDevConnected = false; // Input device
 bool isPlaybackDevConnected = false; // Output device
 std::vector<cAudioDeviceInfo> availableAudioDevices;
 AudioProcessor audioProcessor([](){
-    AnalyzeData();
+    AnalyzeAudioData();
     serialStatus = Status_Idle;
 });
 PaDeviceIndex selectedOutputAudioDeviceIdx = 0;
 const UINT AUDIO_SAMPLE_RATE = REC_SAMPLE_RATE;//44100U;
-//const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
-//const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
-//const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
 const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
-//#ifdef _WIN32
-//const UINT AUDIO_SAMPLE_RATE = 10000;//44100U;
-//const UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 10;
-//const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2;
-//const UINT AUDIO_BUFFER_SIZE = WARMUP_AUDIO_BUFFER_SIZE + TEST_AUDIO_BUFFER_SIZE;
-//const UINT INTERNAL_TEST_DELAY = 1195387; // in microseconds
-//#else
-//UINT PLAYBACK_BUFFER_SIZE = 1000;
-//UINT PLAYBACK_SAMPLE_RATE = 10000;
-//ALSA_AudioDevice<short> audioPlayer(PLAYBACK_BUFFER_SIZE, PLAYBACK_SAMPLE_RATE);
-//
-//#define AUDIO_DATA_FORMAT int
-//ALSA_RecDevice<AUDIO_DATA_FORMAT>* curAudioDevice;
-//UINT AUDIO_SAMPLE_RATE = 44100;//44100;//44100U;
-//UINT TEST_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 4;
-//const UINT WARMUP_AUDIO_BUFFER_SIZE = AUDIO_SAMPLE_RATE / 2; // On Unix this isn't really a "buffer", but just a delay
-//UINT AUDIO_BUFFER_SIZE = TEST_AUDIO_BUFFER_SIZE;
-//const UINT INTERNAL_TEST_DELAY = 995387; // in microseconds
-//#endif
 
 std::chrono::steady_clock::time_point moddedMouseTimeClicked;
 bool wasModdedMouseTimeUpdated = false;
@@ -96,20 +76,16 @@ bool isGameMode = false;
 bool isInternalMode = false;
 bool isAudioMode = false;
 
-bool wasMeasurementAddedGUI = false;
-
 bool shouldRunConfiguration = false;
 
-float leftTabWidth = 400;
+float leftTabWidth = GUI::windowX / 2;
 
 // Forward declarations
 void GotSerialChar(char c);
 void ClearData();
 void DiscoverAudioDevices();
 void StartInternalTest();
-void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime);
 bool CanDoInternalTest(uint64_t time = 0);
-bool SetupAudioDevice();
 void AttemptConnect();
 void AttemptDisconnect();
 
@@ -157,7 +133,7 @@ TODO:
 
 bool isSettingOpen = false;
 
-bool AnalyzeData()
+bool AnalyzeAudioData()
 {
 	UINT iter_offset = 00;
 	const UINT BUFFER_MAX_VALUE = (1 << (sizeof(short) * 8)) / 2 - 1;
@@ -166,18 +142,18 @@ bool AnalyzeData()
 	//serialStatus = Status_Idle;
 
 	int baseAvg = 0;
-	const short AvgCount = 10;
+	const short kAvgCount = 10;
 	//const int REMAINDER_COUNTDOWN_VALUE = 10;
 	//int isBufferRemainder = 0; // Value at which last measurement ended gets carried to the current buffer, we have to deal with it.
 
-	for (size_t i = iter_offset; i < FRAMES_TO_CAPTURE / MAIN_BUFFER_SIZE_FRACTION; i++)
+	for (size_t sampleIdx = iter_offset; sampleIdx < FRAMES_TO_CAPTURE / MAIN_BUFFER_SIZE_FRACTION; sampleIdx++)
 	{
-		if (i - iter_offset < AvgCount) {
-			baseAvg += audioProcessor.recordedSamples[i];
+		if (sampleIdx - iter_offset < kAvgCount) {
+			baseAvg += audioProcessor.recordedSamples[sampleIdx];
 			continue;
 		}
-		else if (i - iter_offset == AvgCount) {
-			baseAvg /= AvgCount;
+		else if (sampleIdx - iter_offset == kAvgCount) {
+			baseAvg /= kAvgCount;
 			baseAvg = abs(baseAvg);
 			//if (baseAvg > BUFFER_THRESHOLD)
 			//	isBufferRemainder = REMAINDER_COUNTDOWN_VALUE;
@@ -193,16 +169,16 @@ bool AnalyzeData()
 		//	continue;
 		//}
 
-		short sample = abs(audioProcessor.recordedSamples[i] - baseAvg);
+		short sample = abs(audioProcessor.recordedSamples[sampleIdx] - baseAvg);
 
 		if (sample >= BUFFER_THRESHOLD)
 		{
-			float microsElapsed = (1000000ull * (i - iter_offset)) / AUDIO_SAMPLE_RATE;
+			float microsElapsed = (1000000ull * (sampleIdx - iter_offset)) / AUDIO_SAMPLE_RATE;
 			if (baseAvg > BUFFER_MAX_VALUE * 0.9f || microsElapsed <= 1000)
 				return false;
 #ifdef _DEBUG
             std::cout << "latency: " << microsElapsed << ", base val: " << baseAvg << std::endl;
-            printf("at sample %i\n", i);
+            printf("at sample %i\n", sampleIdx);
 #endif // _DEBUG
 			AddMeasurement(microsElapsed, 0, 0);
 			return true;
@@ -220,11 +196,12 @@ static int FilterValidPath(ImGuiInputTextCallbackData* data)
 
 void ClearData()
 {
+    std::lock_guard<std::mutex> lock(g_LatencyStatsMutex);
 	serialStatus = Status_Idle;
-	tabsInfo[selectedTab].latencyData.measurements.clear();
-	tabsInfo[selectedTab].latencyStats = LatencyStats();
-	tabsInfo[selectedTab].isSaved = true;
-	ZeroMemory(tabsInfo[selectedTab].latencyData.note, 1000);
+	g_TabsInfo[g_SelectedTab].latencyData.measurements.clear();
+	g_TabsInfo[g_SelectedTab].latencyStats = LatencyStats();
+	g_TabsInfo[g_SelectedTab].isSaved = true;
+	ZeroMemory(g_TabsInfo[g_SelectedTab].latencyData.note, 1000);
 }
 
 // Not the best GUI solution, but it's simple, fast and gets the job done.
@@ -257,12 +234,13 @@ int OnGui()
 			if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) { SaveAsMeasurements(); }
 			if (ImGui::MenuItem("Save Pack", "Alt+S")) { SavePackMeasurements(); }
 			if (ImGui::MenuItem("Save Pack As", "Alt+Shift+S")) { SavePackAsMeasurements(); }
+			if (ImGui::MenuItem("Export as CSV""")) { ExportCSV(); }
 			if (ImGui::MenuItem("Fullscreen", "Alt+Enter")) {
-                //GUI::SetFullScreenState(isFullscreen);
+                //GUI::SetFullScreenState(g_IsFullscreen);
 
-				if (!isFullscreen && !fullscreenModeOpenPopup)
+				if (!g_IsFullscreen && !g_FullscreenModeOpenPopup)
 					openFullscreenCommand = 1;
-				else if (!fullscreenModeClosePopup && !fullscreenModeOpenPopup)
+				else if (!g_FullscreenModeClosePopup && !g_FullscreenModeOpenPopup)
 					openFullscreenCommand = -1;
 			}
 			if (ImGui::MenuItem("Settings", "")) { isSettingOpen = !isSettingOpen; }
@@ -300,11 +278,11 @@ int OnGui()
 
 		if (openFullscreenCommand == 1) {
 			ImGui::OpenPopup("Enter Fullscreen mode?");
-			fullscreenModeOpenPopup = true;
+			g_FullscreenModeOpenPopup = true;
 		}
 		else if (openFullscreenCommand == -1) {
 			ImGui::OpenPopup("Exit Fullscreen mode?");
-			fullscreenModeClosePopup = true;
+			g_FullscreenModeClosePopup = true;
 		}
 
         if(badVerPopupOpen)
@@ -333,170 +311,93 @@ int OnGui()
 
 
 	// Handle Shortcuts
-	ImGuiKey pressedKeys[ImGuiKey_COUNT]{static_cast<ImGuiKey>(0)};
-	size_t addedKeys = 0;
+	if (ImGui::Shortcut(ImGuiKey_W | ImGuiMod_Ctrl)) {
+		char tabClosePopupName[48];
+		snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", g_SelectedTab);
 
-	//ZeroMemory(pressedKeys, ImGuiKey_COUNT);
-
-	for (auto key = static_cast<ImGuiKey>(0); key < ImGuiKey_COUNT; (*(int*)&key)++)
-	{
-		bool isPressed = ImGui::IsKeyPressed(key, false);
-
-		// Shift, ctrl and alt
-		if ((key >= 641 && key <= 643) || (key >= 527 && key <= 533))
-			continue;
-
-		if (ImGui::IsLegacyKey(key))
-			continue;
-		
-		if (isPressed) {
-			pressedKeys[addedKeys++] = key;
-		}
-	}
-
-	static bool wasEscapeUp{ true };
-
-	if (addedKeys == 1)
-	{
-		//const char* name = ImGui::GetKeyName(pressedKeys[0]);
-		if (io.KeyCtrl)
-		{
-			// Moved to the Main function
-			//io.ClearInputKeys();
-			//if (pressedKeys[0] == ImGuiKey_S)
-			//{
-			//	printf("Save intent\n");
-			//	SaveMeasurements();
-			//}
-			//if (pressedKeys[0] == ImGuiKey_O)
-			//{
-			//	OpenMeasurements();
-			//}
-			//else if (pressedKeys[0] == ImGuiKey_N)
-			//{
-			//	auto newTab = TabInfo();
-			//	strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
-			//	tabsInfo.push_back(newTab);
-			//}
-			// Doesn't work yet!
-			if (pressedKeys[0] == ImGuiKey_W)
+		if (g_TabsInfo.size() > 1) {
+			if (!g_TabsInfo[g_SelectedTab].isSaved)
 			{
-				char tabClosePopupName[48];
-				snprintf(tabClosePopupName, 48, "Save before Closing?###TabExit%i", selectedTab);
-
 				ImGui::OpenPopup(tabClosePopupName);
 			}
-		}
-		else if (io.KeyAlt)
-		{
-			//io.ClearInputKeys();
-
-			// Going fullscreen popup currently with a small issue
-
-			// Enter
-			if (pressedKeys[0] == ImGuiKey_Enter || pressedKeys[0] == ImGuiKey_KeypadEnter)
+			else
 			{
-				//GUI::g_pSwapChain->GetFullscreenState((BOOL*)&isFullscreen, nullptr);
-                isFullscreen = GUI::GetFullScreenState();
-				if (!isFullscreen && !fullscreenModeOpenPopup)
-				{
-					ImGui::OpenPopup("Enter Fullscreen mode?");
-					fullscreenModeOpenPopup = true;
-				}
-				else if (!fullscreenModeClosePopup && !fullscreenModeOpenPopup)
-				{
-					ImGui::OpenPopup("Exit Fullscreen mode?");
-					fullscreenModeClosePopup = true;
-				}
+				DeleteTab(g_SelectedTab);
+				if (g_SelectedTab >= g_TabsInfo.size() - 1)
+					g_SelectedTab = g_TabsInfo.size() - 1;
 			}
-		}
-		else if (!io.KeyShift && pressedKeys[0] == ImGuiKey_Escape)
-		{
-			bool isFS = GUI::GetFullScreenState();
-			//GUI::g_pSwapChain->GetFullscreenState(&isFS, nullptr);
-			isFullscreen = isFS;
-			if (isFullscreen && !fullscreenModeClosePopup && wasEscapeUp)
-			{
-				wasEscapeUp = false;
-				ImGui::OpenPopup("Exit Fullscreen mode?");
-				fullscreenModeClosePopup = true;
-				wasEscapeUp = false;
-			}
-
 		}
 	}
 
-	if (ImGui::BeginPopupModal("Enter Fullscreen mode?", &fullscreenModeOpenPopup, ImGuiWindowFlags_AlwaysAutoResize))
+	if (ImGui::Shortcut(ImGuiKey_Enter | ImGuiMod_Alt) || ImGui::Shortcut(ImGuiKey_KeypadEnter | ImGuiMod_Alt)) {
+		//GUI::g_pSwapChain->GetFullscreenState((BOOL*)&g_IsFullscreen, nullptr);
+		g_IsFullscreen = GUI::GetFullScreenState();
+		if (!g_IsFullscreen)
+		{
+			ImGui::OpenPopup("Enter Fullscreen mode?");
+		}
+		else
+		{
+			ImGui::OpenPopup("Exit Fullscreen mode?");
+		}
+	}
+
+	if (ImGui::Shortcut(ImGuiKey_Escape)) {
+		g_IsFullscreen = GUI::GetFullScreenState();
+		if (g_IsFullscreen)
+		{
+			printf("Escape pressed\n");
+			ImGui::OpenPopup("Exit Fullscreen mode?");
+		}
+	}
+
+	if (ImGui::BeginPopupModal("Enter Fullscreen mode?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
 		ImGui::Text("Are you sure you want to enter Fullscreen mode?");
 		TOOLTIP("Press Escape to Exit");
 		ImGui::SeparatorSpace(0, { 0, 10 });
 		if (ImGui::Button("Yes") || (IS_ONLY_ENTER_PRESSED && !io.KeyAlt))
 		{
-			// I'm pretty sure I should also resize the swapchain buffer to use the new resolution, but maybe later. It looks kind of goofy on displays with odd resolution :shrug:
-			//GUI::g_pSwapChain->ResizeBuffers(0, 1080, 1920, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
-			//UINT modesNum = 256;
-			//DXGI_MODE_DESC monitorModes[256];
-			//GUI::vOutputs[1]->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM, 0, &modesNum, monitorModes);
-			//DXGI_MODE_DESC mode = monitorModes[modesNum - 1];
-			//GUI::g_pSwapChain->ResizeTarget(&mode);
-			//GUI::g_pSwapChain->ResizeBuffers(0, 1080, 1920, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
 			if (GUI::SetFullScreenState(true) == 0)
-				isFullscreen = true;
+				g_IsFullscreen = true;
 			else
-				isFullscreen = false;
+				g_IsFullscreen = false;
 
 			ImGui::CloseCurrentPopup();
-			fullscreenModeOpenPopup = false;
+			g_FullscreenModeOpenPopup = false;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("No") || IS_ONLY_ESCAPE_PRESSED)
 		{
 			ImGui::CloseCurrentPopup();
-			fullscreenModeOpenPopup = false;
+			g_FullscreenModeOpenPopup = false;
 		}
 		ImGui::EndPopup();
 	}
 
-	if (ImGui::BeginPopupModal("Exit Fullscreen mode?", &fullscreenModeClosePopup, ImGuiWindowFlags_AlwaysAutoResize))
+	if (ImGui::BeginPopupModal("Exit Fullscreen mode?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
 		ImGui::Text("Are you sure you want to exit Fullscreen mode?");
 		ImGui::SeparatorSpace(0, { 0, 10 });
 
-		// ImGui doesn't yet support focusing a button
-
-		//ImGui::PushAllowKeyboardFocus(true);
-		//ImGui::PushID("ExitFSYes");
-		//ImGui::SetKeyboardFocusHere();
-		//bool isYesDown = ImGui::Button("Yes");
-		//ImGui::PopID();
-		////ImGui::SetKeyboardFocusHere(-1);
-		//auto curWindow = ImGui::GetCurrentWindow();
-		//ImGui::PopAllowKeyboardFocus();
-		//ImGui::SetFocusID(curWindow->GetID("ExitFSYes"), curWindow);
-
-		if (ImGui::Button("Yes") || IS_ONLY_ENTER_PRESSED)
+		if (ImGui::Button("Yes") || ImGui::Shortcut(ImGuiKey_Enter) || ImGui::Shortcut(ImGuiKey_KeypadEnter))
 		{
             if (GUI::SetFullScreenState(false) == 0)
-				isFullscreen = false;
+				g_IsFullscreen = false;
             else
-                isFullscreen = true;
+                g_IsFullscreen = true;
 
 			ImGui::CloseCurrentPopup();
-			fullscreenModeClosePopup = false;
+			g_FullscreenModeClosePopup = false;
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("No") || (IS_ONLY_ESCAPE_PRESSED && wasEscapeUp))
+		if (ImGui::Button("No") || ImGui::Shortcut(ImGuiKey_Escape))
 		{
-			wasEscapeUp = false;
 			ImGui::CloseCurrentPopup();
-			fullscreenModeClosePopup = false;
+			g_FullscreenModeClosePopup = false;
 		}
 		ImGui::EndPopup();
 	}
-
-	if (ImGui::IsKeyReleased(ImGuiKey_Escape))
-		wasEscapeUp = true;
 
 	// following way might be better, but it requires a use of some weird values like 0xF for CTRL+S
 	//if (io.InputQueueCharacters.size() == 1)
@@ -528,7 +429,7 @@ int OnGui()
 			if (ImGui::BeginPopupModal("Save Style?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 			{
 				isSettingOpen = true;
-				ImGui::PushFont(boldFont);
+				ImGui::PushFont(g_BoldFont);
 				ImGui::Text("Do you want to save before exiting?");
 				ImGui::PopFont();
 
@@ -536,7 +437,7 @@ int OnGui()
 				ImGui::Separator();
 				ImGui::Dummy({ 0, ImGui::GetTextLineHeight() });
 
-				// These buttons don't really fit the window perfectly with some fonts, I might have to look into that.
+				// These buttons don't really fit the window perfectly with some g_Fonts, I might have to look into that.
 				ImGui::BeginGroup();
 
 				if (ImGui::Button("Save"))
@@ -598,19 +499,19 @@ int OnGui()
 			{
 				ImGui::BeginChild("Style", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true);
 
-				ImGui::ColorEdit4("Main Color", currentUserData.style.mainColor);
+				ImGui::ColorEdit4("Main Color", g_CurrentUserData.style.mainColor);
 
 				ImGui::PushID(02);
-				ImGui::SliderFloat("Brightness", &currentUserData.style.mainColorBrightness, -0.5f, 0.5f);
-				REVERT(&currentUserData.style.mainColorBrightness, backupUserData.style.mainColorBrightness);
+				ImGui::SliderFloat("Brightness", &g_CurrentUserData.style.mainColorBrightness, -0.5f, 0.5f);
+				REVERT(&g_CurrentUserData.style.mainColorBrightness, g_BackupUserData.style.mainColorBrightness);
 				ImGui::PopID();
 
-				auto _accentColor = ImVec4(*(ImVec4*)currentUserData.style.mainColor);
-				auto darkerAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - currentUserData.style.mainColorBrightness);
-				auto darkestAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - currentUserData.style.mainColorBrightness * 2);
+				auto _accentColor = ImVec4(*(ImVec4*)g_CurrentUserData.style.mainColor);
+				auto darkerAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - g_CurrentUserData.style.mainColorBrightness);
+				auto darkestAccent = ImVec4(*(ImVec4*)&_accentColor) * (1 - g_CurrentUserData.style.mainColorBrightness * 2);
 
 				// Alpha has to be set separatly, because it also gets multiplied times brightness.
-				auto alphaAccent = ImVec4(*(ImVec4*)currentUserData.style.mainColor).w;
+				auto alphaAccent = ImVec4(*(ImVec4*)g_CurrentUserData.style.mainColor).w;
 				_accentColor.w = alphaAccent;
 				darkerAccent.w = alphaAccent;
 				darkestAccent.w = alphaAccent;
@@ -627,18 +528,18 @@ int OnGui()
 				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
 
 
-				ImGui::ColorEdit4("Font Color", currentUserData.style.fontColor);
+				ImGui::ColorEdit4("Font Color", g_CurrentUserData.style.fontColor);
 
 				ImGui::PushID(12);
-				ImGui::SliderFloat("Brightness", &currentUserData.style.fontColorBrightness, -1.0f, 1.0f, "%.3f");
-				REVERT(&currentUserData.style.fontColorBrightness, backupUserData.style.fontColorBrightness);
+				ImGui::SliderFloat("Brightness", &g_CurrentUserData.style.fontColorBrightness, -1.0f, 1.0f, "%.3f");
+				REVERT(&g_CurrentUserData.style.fontColorBrightness, g_BackupUserData.style.fontColorBrightness);
 				ImGui::PopID();
 
-				auto _fontColor = ImVec4(*(ImVec4*)currentUserData.style.fontColor);
-				auto darkerFont = ImVec4(*(ImVec4*)&_fontColor) * (1 - currentUserData.style.fontColorBrightness);
+				auto _fontColor = ImVec4(*(ImVec4*)g_CurrentUserData.style.fontColor);
+				auto darkerFont = ImVec4(*(ImVec4*)&_fontColor) * (1 - g_CurrentUserData.style.fontColorBrightness);
 
 				// Alpha has to be set separatly, because it also gets multiplied times brightness.
-				auto alphaFont = ImVec4(*(ImVec4*)currentUserData.style.fontColor).w;
+				auto alphaFont = ImVec4(*(ImVec4*)g_CurrentUserData.style.fontColor).w;
 				_fontColor.w = alphaFont;
 				darkerFont.w = alphaFont;
 
@@ -651,18 +552,18 @@ int OnGui()
 
 				//float colors[2][4];
 				//float brightnesses[2]{ accentBrightness, fontBrightness };
-				//memcpy(&colors, &accentColor, colorSize);
-				//memcpy(&colors[1], &fontColor, colorSize);
+				//memcpy(&colors, &accentColor, COLOR_SIZE);
+				//memcpy(&colors[1], &fontColor, COLOR_SIZE);
 				//ApplyStyle(colors, brightnesses);
 
 				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
 
 
-				ImGui::ColorEdit4("Int. Plot", currentUserData.style.internalPlotColor);
+				ImGui::ColorEdit4("Int. Plot", g_CurrentUserData.style.internalPlotColor);
 				TOOLTIP("Internal plot color");
-				ImGui::ColorEdit4("Ext. Plot", currentUserData.style.externalPlotColor);
+				ImGui::ColorEdit4("Ext. Plot", g_CurrentUserData.style.externalPlotColor);
 				TOOLTIP("External plot color");
-				ImGui::ColorEdit4("Input Plot", currentUserData.style.inputPlotColor);
+				ImGui::ColorEdit4("Input Plot", g_CurrentUserData.style.inputPlotColor);
 				TOOLTIP("Input plot color");
 
 				ApplyCurrentStyle();
@@ -671,27 +572,27 @@ int OnGui()
 				ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { colorsAvail.x * 0.9f, ImGui::GetFrameHeight() });
 
 
-				//ImGui::PushFont(io.Fonts->Fonts[fontIndex[selectedFont]]);
-				// This has to be done manually (instead of ImGui::Combo()) to be able to change the fonts of each selectable to a corresponding one.
-				if (ImGui::BeginCombo("Font", fonts[currentUserData.style.selectedFont]))
+				//ImGui::PushFont(io.Fonts->Fonts[g_FontIndex[selectedFont]]);
+				// This has to be done manually (instead of ImGui::Combo()) to be able to change the g_Fonts of each selectable to a corresponding one.
+				if (ImGui::BeginCombo("Font", g_Fonts[g_CurrentUserData.style.selectedFont]))
 				{
 					for (int i = 0; i < ((io.Fonts->Fonts.Size - 1) / 2) + 1; i++)
 					{
 						//auto selectableSpace = ImGui::GetContentRegionAvail();
 						//ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
 
-						ImGui::PushFont(io.Fonts->Fonts[fontIndex[i]]);
+						ImGui::PushFont(io.Fonts->Fonts[g_FontIndex[i]]);
 
-						bool isSelected = (currentUserData.style.selectedFont == i);
-						if (ImGui::Selectable(fonts[i], isSelected, 0, { 0, 0 }))
+						bool isSelected = (g_CurrentUserData.style.selectedFont == i);
+						if (ImGui::Selectable(g_Fonts[i], isSelected, 0, { 0, 0 }))
 						{
-							if (currentUserData.style.selectedFont != i) {
-								io.FontDefault = io.Fonts->Fonts[fontIndex[i]];
+							if (g_CurrentUserData.style.selectedFont != i) {
+								io.FontDefault = io.Fonts->Fonts[g_FontIndex[i]];
 								if (auto _boldFont = GetFontBold(i); _boldFont != nullptr)
-									boldFont = _boldFont;
+									g_BoldFont = _boldFont;
 								else
-									boldFont = io.Fonts->Fonts[fontIndex[i]];
-								currentUserData.style.selectedFont = i;
+									g_BoldFont = io.Fonts->Fonts[g_FontIndex[i]];
+								g_CurrentUserData.style.selectedFont = i;
 							}
 						}
 						ImGui::PopFont();
@@ -700,13 +601,13 @@ int OnGui()
 				}
 				//ImGui::PopFont();
 
-				bool hasFontSizeChanged = ImGui::SliderFloat("Font Size", &currentUserData.style.fontSize, 0.5f, 2, "%.2f");
-				REVERT(&currentUserData.style.fontSize, backupUserData.style.fontSize);
+				bool hasFontSizeChanged = ImGui::SliderFloat("Font Size", &g_CurrentUserData.style.fontSize, 0.5f, 2, "%.2f");
+				REVERT(&g_CurrentUserData.style.fontSize, g_BackupUserData.style.fontSize);
 				if (hasFontSizeChanged || ImGui::IsItemClicked(1))
 				{
 					for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 					{
-						io.Fonts->Fonts[i]->Scale = currentUserData.style.fontSize;
+						io.Fonts->Fonts[i]->Scale = g_CurrentUserData.style.fontSize;
 					}
 				}
 
@@ -720,27 +621,27 @@ int OnGui()
 				if (ImGui::BeginChild("Performance", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true))
 				{
 					auto performanceAvail = ImGui::GetContentRegionAvail();
-					ImGui::Checkbox("###LockGuiFpsCB", &currentUserData.performance.lockGuiFps);
+					ImGui::Checkbox("###LockGuiFpsCB", &g_CurrentUserData.performance.lockGuiFps);
 					TOOLTIP("It's strongly recommended to keep GUI FPS locked for the best performance");
 
-					ImGui::BeginDisabled(!currentUserData.performance.lockGuiFps);
+					ImGui::BeginDisabled(!g_CurrentUserData.performance.lockGuiFps);
 					ImGui::SameLine();
 					ImGui::PushItemWidth(performanceAvail.x - ImGui::GetItemRectSize().x - style.FramePadding.x * 3 - ImGui::CalcTextSize("GUI Refresh Rate").x);
 					//ImGui::SliderInt("GUI FPS", &guiLockedFps, 30, 360, "%.1f");
-					ImGui::DragInt("GUI Refresh Rate", &currentUserData.performance.guiLockedFps, .5f, 30, 480);
-					REVERT(&currentUserData.performance.guiLockedFps, backupUserData.performance.guiLockedFps);
+					ImGui::DragInt("GUI Refresh Rate", &g_CurrentUserData.performance.guiLockedFps, .5f, 30, 480);
+					REVERT(&g_CurrentUserData.performance.guiLockedFps, g_BackupUserData.performance.guiLockedFps);
 					ImGui::PopItemWidth();
 					ImGui::EndDisabled();
 
 					ImGui::Spacing();
 
-					ImGui::Checkbox("Show Plots", &currentUserData.performance.showPlots);
+					ImGui::Checkbox("Show Plots", &g_CurrentUserData.performance.showPlots);
 					TOOLTIP("Plots can have a small impact on the performance");
 
 					ImGui::Spacing();
 
-					//ImGui::Checkbox("VSync", &currentUserData.performance.VSync);
-					ImGui::SliderInt("VSync", &(int&)currentUserData.performance.VSync, 0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
+					//ImGui::Checkbox("VSync", &g_CurrentUserData.performance.VSync);
+					ImGui::SliderInt("VSync", &(int&)g_CurrentUserData.performance.VSync, 0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
 					TOOLTIP("This setting synchronizes your monitor with the program to avoid screen tearing.\n(Adds a significant amount of latency)");
 
 					ImGui::EndChild();
@@ -752,7 +653,7 @@ int OnGui()
 			case 2:
 				if ((ImGui::BeginChild("Misc", { ((1 - listBoxSize) * avail.x) - style.FramePadding.x * 2, avail.y - ImGui::GetFrameHeightWithSpacing() }, true)))
 				{
-					ImGui::Checkbox("Save config locally", &currentUserData.misc.localUserData);
+					ImGui::Checkbox("Save config locally", &g_CurrentUserData.misc.localUserData);
 #ifdef _WIN32
 					TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the AppData folder");
 #else
@@ -797,24 +698,25 @@ int OnGui()
 	if (ImGui::BeginTabBar("TestsTab", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
 	{
 
-		for (size_t tabN = 0; tabN < tabsInfo.size(); tabN++)
+        std::lock_guard<std::mutex> lock(g_LatencyStatsMutex);
+		for (int tabN = 0; tabN < g_TabsInfo.size(); tabN++)
 		{
 			//char idText[24];
 			//snprintf(idText, 24, "Tab Item %i", tabN);
 			//ImGui::PushID(idText);
 
-			char tabNameLabel[48];
-			snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[tabN].name, tabN);
+			char tabNameLabel[64 + 16];
+			snprintf(tabNameLabel, 64 + 16, "%s###Tab%i", g_TabsInfo[tabN].name, tabN);
 
 			//ImGui::PushItemWidth(ImGui::CalcTextSize(tabNameLabel).x + 100);
-			//if(!tabsInfo[tabN].isSaved)
-			//	ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + 15);
+			//if(!g_TabsInfo[tabN].isSaved)
+			//	ImGui::SetNextItemWidth(ImGui::CalcTextSize(g_TabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + 15);
 			//else
-			ImGui::SetNextItemWidth(ImGui::CalcTextSize(tabsInfo[tabN].name, NULL).x + (style.FramePadding.x * 2) + (tabsInfo[tabN].isSaved ? 0 : 15));
-			//selectedTab = tabsInfo.size() - 1;
-			auto flags = selectedTab == tabN ? ImGuiTabItemFlags_SetSelected : 0;
-			flags |= tabsInfo[tabN].isSaved ? 0 : ImGuiTabItemFlags_UnsavedDocument;
-			if (ImGui::BeginTabItem(tabNameLabel, NULL, flags))
+			ImGui::SetNextItemWidth(ImGui::CalcTextSize(g_TabsInfo[tabN].name, nullptr).x + (style.FramePadding.x * 2) + (g_TabsInfo[tabN].isSaved ? 0 : 15));
+			//g_SelectedTab = g_TabsInfo.size() - 1;
+			auto flags = g_SelectedTab == tabN ? ImGuiTabItemFlags_SetSelected : 0;
+			flags |= g_TabsInfo[tabN].isSaved ? 0 : ImGuiTabItemFlags_UnsavedDocument;
+			if (ImGui::BeginTabItem(tabNameLabel, nullptr, flags))
 			{
 				ImGui::EndTabItem();
 			}
@@ -825,12 +727,12 @@ int OnGui()
 			{
 				if (ImGui::IsMouseDown(0))
 				{
-					selectedTab = tabN;
+					g_SelectedTab = tabN;
 				}
 
 				auto mouseDelta = io.MouseWheel;
-				selectedTab += mouseDelta;
-				selectedTab = std::clamp(selectedTab, 0, (int)tabsInfo.size() - 1);
+				g_SelectedTab += mouseDelta;
+				g_SelectedTab = std::clamp(g_SelectedTab, 0, (int)g_TabsInfo.size() - 1);
 			}
 
 			char popupName[32]{ 0 };
@@ -851,15 +753,15 @@ int OnGui()
 #ifdef _DEBUG
 					printf("deleting tab: %i\n", tabN);
 #endif
-					if (tabsInfo.size() > 1)
-						if (!tabsInfo[tabN].isSaved)
+					if (g_TabsInfo.size() > 1)
+						if (!g_TabsInfo[tabN].isSaved)
 						{
 							ImGui::OpenPopup(tabClosePopupName);
 						}
 						else
 						{
 							deletedTabIndex = tabN;
-							if (tabN == tabsInfo.size() - 1)
+							if (tabN == g_TabsInfo.size() - 1)
 							{
 								ImGuiContext& g = *GImGui;
 								ImGui::SetFocusID(g.CurrentTabBar->Tabs[tabN-1].ID, ImGui::GetCurrentWindow());
@@ -869,47 +771,28 @@ int OnGui()
 						}
 				}
 
-				else if (ImGui::IsKeyDown(ImGuiKey_F2))
+				if (ImGui::IsKeyDown(ImGuiKey_F2))
 				{
 					ImGui::OpenPopup(popupTextEdit);
 				}
 
 				if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
-					selectedTab--;
+					g_SelectedTab--;
 
 				if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
-					selectedTab++;
+					g_SelectedTab++;
 
-				if (io.KeyCtrl)
-				{
-					if (pressedKeys[0] == ImGuiKey_W)
-						if (tabsInfo.size() > 1)
-							if (!tabsInfo[tabN].isSaved)
-							{
-								ImGui::OpenPopup(tabClosePopupName);
-							}
-							else
-							{
-								deletedTabIndex = tabN;
-								if (tabN == tabsInfo.size() - 1)
-								{
-									ImGuiContext& g = *GImGui;
-									ImGui::SetFocusID(g.CurrentTabBar->Tabs[tabN - 1].ID, ImGui::GetCurrentWindow());
-								}
-							}
-				}
-
-				selectedTab = std::clamp(selectedTab, 0, (int)tabsInfo.size() - 1);
+				g_SelectedTab = std::clamp(g_SelectedTab, 0, (int)g_TabsInfo.size() - 1);
 			}
 
 			if (ImGui::BeginPopup(popupTextEdit, ImGuiWindowFlags_NoMove))
 			{
 				ImGui::SetKeyboardFocusHere(0);
-				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, TAB_NAME_MAX_SIZE, ImGuiInputTextFlags_AutoSelectAll))
+				if (ImGui::InputText("Tab name", g_TabsInfo[tabN].name, TAB_NAME_MAX_SIZE, ImGuiInputTextFlags_AutoSelectAll))
 				{
-					char defaultTabName[8]{ 0 };
-					snprintf(defaultTabName, 8, "Tab %i", tabN);
-					tabsInfo[tabN].isSaved = !strcmp(defaultTabName, tabsInfo[tabN].name);
+					char defaultTabName[16]{ 0 };
+					snprintf(defaultTabName, 16, "Tab %i", tabN);
+					g_TabsInfo[tabN].isSaved = !strcmp(defaultTabName, g_TabsInfo[tabN].name);
 				}
 				ImGui::EndPopup();
 			}
@@ -926,21 +809,21 @@ int OnGui()
 			{
 				// Check if this name already exists
 				//ImGui::SetKeyboardFocusHere(0);
-				if (ImGui::InputText("Tab name", tabsInfo[tabN].name, TAB_NAME_MAX_SIZE, ImGuiInputTextFlags_AutoSelectAll))
+				if (ImGui::InputText("Tab name", g_TabsInfo[tabN].name, TAB_NAME_MAX_SIZE, ImGuiInputTextFlags_AutoSelectAll))
 				{
-					char defaultTabName[8]{ 0 };
-					snprintf(defaultTabName, 8, "Tab %i", tabN);
-					tabsInfo[tabN].isSaved = !strcmp(defaultTabName, tabsInfo[tabN].name);
+					char defaultTabName[16]{ 0 };
+					snprintf(defaultTabName, 16, "Tab %i", tabN);
+					g_TabsInfo[tabN].isSaved = !strcmp(defaultTabName, g_TabsInfo[tabN].name);
 				}
 
 				if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
 					ImGui::CloseCurrentPopup();
 
 				//ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 4);
-				if (tabsInfo.size() > 1) {
+				if (g_TabsInfo.size() > 1) {
 					if (ImGui::Button("Close Tab", { -1, 0 }))
 					{
-						if (!tabsInfo[tabN].isSaved)
+						if (!g_TabsInfo[tabN].isSaved)
 						{
 							ImGui::CloseCurrentPopup();
 							//ImGui::OpenPopup(tabClosePopupName);
@@ -1000,17 +883,17 @@ int OnGui()
 		{
 			auto newTab = TabInfo();
 #ifdef _WIN32
-			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
+			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(g_TabsInfo.size()).c_str());
 #else
-            strcat(newTab.name, std::to_string(tabsInfo.size()).c_str());
+            strcat(newTab.name, std::to_string(g_TabsInfo.size()).c_str());
 #endif
-			tabsInfo.push_back(newTab);
-			selectedTab = tabsInfo.size() - 1;
+			g_TabsInfo.push_back(newTab);
+			g_SelectedTab = g_TabsInfo.size() - 1;
 
-			//ImGui::EndTabItem(); 
+			//ImGui::EndTabItem();
 		}
 
-		//ImGui::Text("Selected Item %i", selectedTab);
+		//ImGui::Text("Selected Item %i", g_SelectedTab);
 
 		ImGui::EndTabBar();
 	}
@@ -1018,20 +901,14 @@ int OnGui()
 	if (ImGui::IsItemHovered())
 	{
 		auto mouseDelta = io.MouseWheel;
-		selectedTab += mouseDelta;
-		selectedTab = std::clamp(selectedTab, 0, (int)tabsInfo.size() - 1);
+		g_SelectedTab += mouseDelta;
+		g_SelectedTab = std::clamp(g_SelectedTab, 0, (int)g_TabsInfo.size() - 1);
 	}
 
 
 	if (deletedTabIndex >= 0)
 	{
-		tabsInfo.erase(tabsInfo.begin() + deletedTabIndex);
-		if(selectedTab >= deletedTabIndex)
-			selectedTab = _max(selectedTab - 1, 0);
-		//char tabNameLabel[48];
-		//snprintf(tabNameLabel, 48, "%s###Tab%i", tabsInfo[selectedTab].name, selectedTab);
-
-		//ImGui::SetFocusID(ImGui::GetID(tabNameLabel), ImGui::GetCurrentWindow());
+		DeleteTab(deletedTabIndex);
 	}
 
 	const auto avail = ImGui::GetContentRegionAvail();
@@ -1039,14 +916,14 @@ int OnGui()
 	if (ImGui::BeginChild("LeftChild", { leftTabWidth, avail.y - detectionRectSize.y - 5 }, true))
 	{
 
-#ifdef _DEBUG 
+#ifdef _DEBUG
 
 		//ImGui::Text("Time is: %ims", clock());
 		ImGui::Text("Time is: %lu\xC2\xB5s", micros());
 
 		ImGui::SameLine();
 
-		ImGui::Text("Serial Staus: %i", serialStatus);
+		ImGui::Text("Serial Staus: %i", serialStatus.load());
 
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS) (GUI ONLY)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
@@ -1268,7 +1145,7 @@ int OnGui()
 
 		ImGui::Spacing();
 
-		ImGui::PushFont(boldFont);
+		ImGui::PushFont(g_BoldFont);
 
 		if (ImGui::BeginChild("MeasurementStats", { 0, ImGui::GetTextLineHeightWithSpacing() * 4 + style.WindowPadding.y * 2 - style.ItemSpacing.y + style.FramePadding.y * 2 }, true))
 		{
@@ -1288,36 +1165,40 @@ int OnGui()
 
 				ImGui::TableNextRow();
 
+				g_LatencyStatsMutex.lock();
+
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Highest");
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000.f);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.internalLatency.highest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.highest / 1000.f);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.externalLatency.highest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.highest / 1000.f);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.inputLatency.highest / 1000.f);
 
 				ImGui::TableNextRow();
 
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Average");
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.average / 1000);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.internalLatency.average / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.average / 1000);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.externalLatency.average / 1000);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.average / 1000);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.inputLatency.average / 1000);
 
 				ImGui::TableNextRow();
 
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("Lowest");
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.internalLatency.lowest / 1000.f);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.internalLatency.lowest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.externalLatency.lowest / 1000.f);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.externalLatency.lowest / 1000.f);
 				ImGui::TableNextColumn();
-				ImGui::Text("%.2f", tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000.f);
+				ImGui::Text("%.2f", g_TabsInfo[g_SelectedTab].latencyStats.inputLatency.lowest / 1000.f);
+
+				g_LatencyStatsMutex.unlock();
 
 				ImGui::EndTable();
 			}
@@ -1328,50 +1209,54 @@ int OnGui()
 		ImGui::PopFont();
 	}
 
-	if (currentUserData.performance.showPlots)
+	if (g_CurrentUserData.performance.showPlots)
 	{
 		auto plotsAvail = ImGui::GetContentRegionAvail();
 		auto plotHeight = _min(_max((plotsAvail.y - (4 * style.FramePadding.y)) / 4, 40), 100);
 
-		auto& measurements = tabsInfo[selectedTab].latencyData.measurements;
+		auto& measurements = g_TabsInfo[g_SelectedTab].latencyData.measurements;
+
+		g_LatencyStatsMutex.lock();
 
 		// Separate Plots
-		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
-		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
-		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("External Latency", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
-		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
-		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		SetPlotLinesColor(*(ImVec4*)g_CurrentUserData.style.internalPlotColor);
+		ImGui::PlotLines("Internal Latency", [](void* data, int idx) { return  g_TabsInfo[g_SelectedTab].latencyData.measurements[idx].timeInternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		SetPlotLinesColor(*(ImVec4*)g_CurrentUserData.style.externalPlotColor);
+		ImGui::PlotLines("External Latency", [](void* data, int idx) { return g_TabsInfo[g_SelectedTab].latencyData.measurements[idx].timeExternal / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, { 0,plotHeight });
+		SetPlotLinesColor(*(ImVec4*)g_CurrentUserData.style.inputPlotColor);
+		ImGui::PlotLines("Input Latency", [](void* data, int idx) { return g_TabsInfo[g_SelectedTab].latencyData.measurements[idx].timeInput / 1000.f; }, measurements.data(), measurements.size(), 0, NULL, FLT_MAX, FLT_MAX, {0, plotHeight });
 		ImGui::PopStyleColor(6);
 
 		// Combined Plots
 		auto startCursorPos = ImGui::GetCursorPos();
 		ImGui::SetCursorPos(startCursorPos);
-		SetPlotLinesColor(*(ImVec4*)currentUserData.style.internalPlotColor);
-		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return  tabsInfo[selectedTab].latencyData.measurements[idx].timeInternal / 1000.f; },
+		SetPlotLinesColor(*(ImVec4*)g_CurrentUserData.style.internalPlotColor);
+		ImGui::PlotLines("Combined Plots", [](void* data, int idx) { return  g_TabsInfo[g_SelectedTab].latencyData.measurements[idx].timeInternal / 1000.f; },
 			measurements.data(), measurements.size(), 0, NULL,
-			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+			g_TabsInfo[g_SelectedTab].latencyStats.inputLatency.lowest / 1000, g_TabsInfo[g_SelectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
 		ImGui::PushStyleColor(ImGuiCol_Border, { 0,0,0,0 });
 		ImGui::SetCursorPos(startCursorPos);
-		SetPlotLinesColor(*(ImVec4*)currentUserData.style.externalPlotColor);
-		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)tabsInfo[selectedTab].latencyData.measurements[idx].timeExternal / 1000.f; },
+		SetPlotLinesColor(*(ImVec4*)g_CurrentUserData.style.externalPlotColor);
+		ImGui::PlotLines("###ExternalPlot", [](void* data, int idx) { return (float)g_TabsInfo[g_SelectedTab].latencyData.measurements[idx].timeExternal / 1000.f; },
 			measurements.data(), measurements.size(), 0, NULL,
-			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+			g_TabsInfo[g_SelectedTab].latencyStats.inputLatency.lowest / 1000, g_TabsInfo[g_SelectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 
 		ImGui::SetCursorPos(startCursorPos);
-		SetPlotLinesColor(*(ImVec4*)currentUserData.style.inputPlotColor);
-		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return tabsInfo[selectedTab].latencyData.measurements[idx].timePing / 1000.f; },
+		SetPlotLinesColor(*(ImVec4*)g_CurrentUserData.style.inputPlotColor);
+		ImGui::PlotLines("###InputPlot", [](void* data, int idx) { return g_TabsInfo[g_SelectedTab].latencyData.measurements[idx].timeInput / 1000.f; },
 			measurements.data(), measurements.size(), 0, NULL,
-			tabsInfo[selectedTab].latencyStats.inputLatency.lowest / 1000, tabsInfo[selectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
+			g_TabsInfo[g_SelectedTab].latencyStats.inputLatency.lowest / 1000, g_TabsInfo[g_SelectedTab].latencyStats.internalLatency.highest / 1000 + 1, { 0,plotHeight });
 		ImGui::PopStyleColor(8);
+
+		g_LatencyStatsMutex.unlock();
 	}
 
 	ImGui::EndChild();
 
 	ImGui::SameLine();
-	
+
 	static float leftTabStart = 0;
 	ImGui::ResizeSeparator(leftTabWidth, leftTabStart, ImGuiSeparatorFlags_Vertical, {300, 300}, { 6, avail.y - detectionRectSize.y - 5 });
 
@@ -1391,15 +1276,15 @@ int OnGui()
 		ImGui::TableHeadersRow();
 
 		// Copy of the original vector has to be used because there is a possibility that some of the items will be removed from it. In which case changes will be updated on the next frame
-		std::vector<LatencyReading> _latencyTestsCopy = tabsInfo[selectedTab].latencyData.measurements;
+		std::vector<LatencyReading> _latencyTestsCopy = g_TabsInfo[g_SelectedTab].latencyData.measurements;
 
 		if (ImGuiTableSortSpecs* sorts_specs = ImGui::TableGetSortSpecs())
 			if (sorts_specs->SpecsDirty)
 			{
-				sortSpec = sorts_specs;
-				if (tabsInfo[selectedTab].latencyData.measurements.size() > 1)
-					qsort(&tabsInfo[selectedTab].latencyData.measurements[0], (size_t)tabsInfo[selectedTab].latencyData.measurements.size(), sizeof(tabsInfo[selectedTab].latencyData.measurements[0]), LatencyCompare);
-				sortSpec = NULL;
+				g_SortSpec = sorts_specs;
+				if (g_TabsInfo[g_SelectedTab].latencyData.measurements.size() > 1)
+					qsort(&g_TabsInfo[g_SelectedTab].latencyData.measurements[0], (size_t)g_TabsInfo[g_SelectedTab].latencyData.measurements.size(), sizeof(g_TabsInfo[g_SelectedTab].latencyData.measurements[0]), CompareLatency);
+				g_SortSpec = NULL;
 				sorts_specs->SpecsDirty = false;
 			}
 
@@ -1427,8 +1312,8 @@ int OnGui()
                 TOOLTIP("%i\xC2\xB5s", reading.timeExternal);
 				ImGui::TableNextColumn();
 
-				ImGui::Text("%i", reading.timePing / 1000);
-				TOOLTIP("%i\xC2\xB5s", reading.timePing);
+				ImGui::Text("%i", reading.timeInput / 1000);
+				TOOLTIP("%i\xC2\xB5s", reading.timeInput);
 
 				ImGui::TableNextColumn();
 
@@ -1441,7 +1326,7 @@ int OnGui()
 			}
 
 
-		if (wasMeasurementAddedGUI)
+		if (g_WasMeasurementAddedGUI)
 			ImGui::SetScrollHereY();
 
 
@@ -1451,11 +1336,11 @@ int OnGui()
 	//ImGui::SameLine();
 
 	// Notes area
-	ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
-	ImGui::Text("Measurement notes");
+	//ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 10 });
+	ImGui::SeparatorText("Measurement notes");
 	auto notesAvail = ImGui::GetContentRegionAvail();
-	ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, {tableAvail.x, _min(notesAvail.y - detectionRectSize.y - 5, 600) }, ImGuiInputTextFlags_NoHorizontalScroll);
-	//ImGui::InputTextMultiline("Measurements Notes", tabsInfo[selectedTab].latencyData.note, 1000, { tableAvail.x, _min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
+	ImGui::InputTextMultiline("##Measurements Notes", g_TabsInfo[g_SelectedTab].latencyData.note, 1000, {tableAvail.x, _min(notesAvail.y - detectionRectSize.y - 5, 600) }, ImGuiInputTextFlags_NoHorizontalScroll);
+	//ImGui::InputTextMultiline("Measurements Notes", g_TabsInfo[g_SelectedTab].latencyData.note, 1000, { tableAvail.x, _min(tableAvail.y - 200 - detectionRectSize.y - style.WindowPadding.y - style.ItemSpacing.y * 5, 600) - ImGui::GetItemRectSize().y - 8});
 
 	ImGui::EndGroup();
 
@@ -1478,7 +1363,7 @@ int OnGui()
 	//if (ImGui::IsItemFocused())
 	//	ImGui::SetFocusID(0, ImGui::GetCurrentWindow());
 
-	if (isInternalMode && serialStatus == Status_Idle && currentUserData.performance.showPlots) {
+	if (isInternalMode && serialStatus == Status_Idle && g_CurrentUserData.performance.showPlots) {
 		ImGui::SetCursorPos(pos);
 		//rectSize.y -= style.WindowPadding.y/2;
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, { 0,0,0,0 });
@@ -1510,7 +1395,7 @@ int OnGui()
 
 		ImGui::SeparatorSpace(0, { 0, 5 });
 
-		ImGui::Checkbox("Save config locally", &currentUserData.misc.localUserData);
+		ImGui::Checkbox("Save config locally", &g_CurrentUserData.misc.localUserData);
 #ifdef _WIN32
 		TOOLTIP("Chose whether you want to save config file in the same directory as the program, or in the AppData folder");
 #else
@@ -1531,7 +1416,7 @@ int OnGui()
 	{
 		if (!unsavedTabs.empty())
 		{
-			selectedTab = unsavedTabs[0];
+			g_SelectedTab = unsavedTabs[0];
 			ImGui::OpenPopup("Exit?");
 		}
 
@@ -1539,7 +1424,7 @@ int OnGui()
 		{
 			ImGui::Text("Are you sure you want to exit before saving?");
 			ImGui::SameLine();
-			ImGui::Text("(%s)", tabsInfo[unsavedTabs.front()].name);
+			ImGui::Text("(%s)", g_TabsInfo[unsavedTabs.front()].name);
 
 			ImGui::SeparatorSpace(ImGuiSeparatorFlags_Horizontal, { 0, 5 });
 
@@ -1558,10 +1443,12 @@ int OnGui()
 				if (SaveMeasurements())
 				{
 					ImGui::CloseCurrentPopup();
-					tabsInfo.erase(tabsInfo.begin() + unsavedTabs.front());
+					g_LatencyStatsMutex.lock();
+					g_TabsInfo.erase(g_TabsInfo.begin() + unsavedTabs.front());
+					g_LatencyStatsMutex.unlock();
 					unsavedTabs.erase(unsavedTabs.begin());
 					if (!unsavedTabs.empty())
-						selectedTab = unsavedTabs[0];
+						g_SelectedTab = unsavedTabs[0];
 					else
 						return 2;
 				}
@@ -1573,11 +1460,13 @@ int OnGui()
 			if (ImGui::Button("Exit", {exit_button_width * scale, 0}))
 			{
 				ImGui::CloseCurrentPopup();
-				tabsInfo.erase(tabsInfo.begin() + unsavedTabs.front());
+				g_LatencyStatsMutex.lock();
+				g_TabsInfo.erase(g_TabsInfo.begin() + unsavedTabs.front());
+				g_LatencyStatsMutex.unlock();
 				unsavedTabs.erase(unsavedTabs.begin());
 				//ImGui::EndPopup();
 				if (!unsavedTabs.empty())
-					selectedTab = unsavedTabs[0];
+					g_SelectedTab = unsavedTabs[0];
 				else
 					return 2;
 			}
@@ -1596,44 +1485,10 @@ int OnGui()
 		}
 	}
 
-    wasMeasurementAddedGUI = false;
+    g_WasMeasurementAddedGUI = false;
 	lastFrameGui = micros();
 
 	return 0;
-}
-
-std::chrono::high_resolution_clock::time_point lastTimeGotChar;
-
-void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime)
-{
-	LatencyReading reading{ externalTime, internalTime, inputTime };
-	size_t size = tabsInfo[selectedTab].latencyData.measurements.size();
-
-	// Update the stats
-	tabsInfo[selectedTab].latencyStats.internalLatency.average = (tabsInfo[selectedTab].latencyStats.internalLatency.average * size) / (size + 1.f) + (internalTime / (size + 1.f));
-	tabsInfo[selectedTab].latencyStats.externalLatency.average = (tabsInfo[selectedTab].latencyStats.externalLatency.average * size) / (size + 1.f) + (externalTime / (size + 1.f));
-	tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (inputTime / (size + 1.f));
-
-	tabsInfo[selectedTab].latencyStats.internalLatency.highest = internalTime > tabsInfo[selectedTab].latencyStats.internalLatency.highest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.highest;
-	tabsInfo[selectedTab].latencyStats.externalLatency.highest = externalTime > tabsInfo[selectedTab].latencyStats.externalLatency.highest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.highest;
-	tabsInfo[selectedTab].latencyStats.inputLatency.highest = inputTime > tabsInfo[selectedTab].latencyStats.inputLatency.highest ? inputTime : tabsInfo[selectedTab].latencyStats.inputLatency.highest;
-
-	tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime < tabsInfo[selectedTab].latencyStats.internalLatency.lowest ? internalTime : tabsInfo[selectedTab].latencyStats.internalLatency.lowest;
-	tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime < tabsInfo[selectedTab].latencyStats.externalLatency.lowest ? externalTime : tabsInfo[selectedTab].latencyStats.externalLatency.lowest;
-	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = inputTime < tabsInfo[selectedTab].latencyStats.inputLatency.lowest ? inputTime : tabsInfo[selectedTab].latencyStats.inputLatency.lowest;
-
-	// If there are no measurements done yet set the minimum value to the current one
-	if (size == 0)
-	{
-		tabsInfo[selectedTab].latencyStats.internalLatency.lowest = internalTime;
-		tabsInfo[selectedTab].latencyStats.externalLatency.lowest = externalTime;
-		tabsInfo[selectedTab].latencyStats.inputLatency.lowest = inputTime;
-	}
-
-    wasMeasurementAddedGUI = true;
-	reading.index = size;
-	tabsInfo[selectedTab].latencyData.measurements.push_back(reading);
-	tabsInfo[selectedTab].isSaved = false;
 }
 
 void GotSerialChar(char c)
@@ -1649,6 +1504,8 @@ void GotSerialChar(char c)
 	const size_t resultBufferSize = 6;
 	static BYTE resultBuffer[resultBufferSize]{ 0 };
 	static BYTE resultNum = 0;
+
+	static std::chrono::high_resolution_clock::time_point lastTimeGotChar;
 
 	static std::chrono::high_resolution_clock::time_point internalStartTime;
 	static std::chrono::high_resolution_clock::time_point internalEndTime;
@@ -1679,10 +1536,8 @@ void GotSerialChar(char c)
 #endif
 			serialStatus = Status_WaitingForResult;
 
-//#ifdef _WIN32
 			if (isAudioMode)
 				audioProcessor.startPlayback();
-//#endif
 
 			if (isGameMode)
                 mouseClick();
@@ -1708,7 +1563,7 @@ void GotSerialChar(char c)
 			resultNum = 0;
 			std::fill_n(resultBuffer, resultBufferSize, 0);
 
-            externalTime *= (c == 'u') ? 1 : 1000; //External2Micros;
+            externalTime *= (c == 'u') ? 1 : 1000; //g_External2Micros;
 
 			if (_max(externalTime, internalTime) > 1000000 || _min(externalTime, internalTime) < 1000)
 			{
@@ -1717,22 +1572,13 @@ void GotSerialChar(char c)
 				break;
 			}
 
-			//wasMouseClickSent = false;
-			//wasLMB_Pressed = false;
-
-			//if (!wasModdedMouseTimeUpdated)
-			//	moddedMouseTimeClicked += std::chrono::microseconds(375227);
 #ifdef _DEBUG
 			printf("Final result: %i\n", externalTime);
 #endif
 
-			//AddMeasurement(internalTime, externalTime, 0);
-
-			//_write(Serial::fd, "p", 1);
+			// Request input latency measurement (ping)
 			Serial::Write("p", 1);
 			pingStartTime = std::chrono::high_resolution_clock::now();
-			//fwrite(&ch, sizeof(char), 1, Serial::hFile);
-			//fflush(Serial::hFile);
 			serialStatus = Status_WaitingForPing;
 		}
 		else
@@ -1746,31 +1592,9 @@ void GotSerialChar(char c)
 		if (c == 'b')
 		{
 			unsigned int pingTime = 0;
-			//if (selectedMode == InputMode_ModdedMouse) {
-			//	pingTime = std::chrono::duration_cast<std::chrono::microseconds>(abs(moddedMouseTimeClicked - internalStartTime)).count();
-			//	wasModdedMouseTimeUpdated = false;
-			//}
-			//else
 			pingTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - pingStartTime).count();
-			//tabsInfo[selectedTab].latencyData.measurements[tabsInfo[selectedTab].latencyData.measurements.size() - 1].timePing = pingTime;
-
-			//size_t size = tabsInfo[selectedTab].latencyData.measurements.size(); -1;
-			// account for the serial timeout delay (this is just an estimate)
-//#ifdef _WIN32
-//			internalTime -= 500000 / SERIAL_UPDATE_TIME;
-//			externalTime -= 500000 / SERIAL_UPDATE_TIME;
-//			pingTime -= 1000000 / SERIAL_UPDATE_TIME;
-//#endif
+			//g_TabsInfo[g_SelectedTab].latencyData.measurements[g_TabsInfo[g_SelectedTab].latencyData.measurements.size() - 1].timeInput = pingTime;
 			AddMeasurement(internalTime, externalTime, pingTime);
-
-			//tabsInfo[selectedTab].latencyStats.inputLatency.average = (tabsInfo[selectedTab].latencyStats.inputLatency.average * size) / (size + 1.f) + (pingTime / (size + 1.f));
-			//tabsInfo[selectedTab].latencyStats.inputLatency.highest = pingTime > tabsInfo[selectedTab].latencyStats.inputLatency.highest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.highest;
-			//tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime < tabsInfo[selectedTab].latencyStats.inputLatency.lowest ? pingTime : tabsInfo[selectedTab].latencyStats.inputLatency.lowest;
-
-			//if (size == 0)
-			//{
-			//	tabsInfo[selectedTab].latencyStats.inputLatency.lowest = pingTime;
-			//}
 
 			serialStatus = Status_Idle;
 		}
@@ -1787,26 +1611,8 @@ void GotSerialChar(char c)
 
 #ifdef _DEBUG
 	printf("char receive delay: %ld\n", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - lastTimeGotChar).count());
-#endif
 	lastTimeGotChar = std::chrono::high_resolution_clock::now();
-}
-
-bool SetupAudioDevice()
-{
-//#ifdef _WIN32
-//	int res = curAudioDevice->AddBuffer(WARMUP_AUDIO_BUFFER_SIZE);
-//	if (res)
-//		return false;
-//
-//	res = curAudioDevice->AddBuffer(TEST_AUDIO_BUFFER_SIZE, true);
-//	if (res)
-//		return false;
-//
-//	return true;
-//#else
-//    return true;
-//#endif
-    return true;
+#endif
 }
 
 // [lower, upper)
@@ -1995,9 +1801,9 @@ bool OnExit()
 
 	unsavedTabs.clear();
 
-	for (size_t i = 0; i < tabsInfo.size(); i++)
+	for (size_t i = 0; i < g_TabsInfo.size(); i++)
 	{
-		if (!tabsInfo[i].isSaved)
+		if (!g_TabsInfo[i].isSaved)
 		{
 			isSaved = false;
 			unsavedTabs.push_back(i);
@@ -2076,9 +1882,9 @@ void KeyDown(WPARAM key, LPARAM info, bool isPressed)
 		else if (key == 'N' && wasJustClicked)
 		{
 			auto newTab = TabInfo();
-			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(tabsInfo.size()).c_str());
-			tabsInfo.push_back(newTab);
-			selectedTab = tabsInfo.size() - 1;
+			strcat_s<TAB_NAME_MAX_SIZE>(newTab.name, std::to_string(g_TabsInfo.size()).c_str());
+			g_TabsInfo.push_back(newTab);
+			g_SelectedTab = g_TabsInfo.size() - 1;
 		}
 		else if (key == 'Q' && wasJustClicked)
 		{
@@ -2166,9 +1972,11 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         else if (key == 'N' && wasJustClicked)
         {
             auto newTab = TabInfo();
-            strcat(newTab.name, std::to_string(tabsInfo.size()).c_str());
-            tabsInfo.push_back(newTab);
-            selectedTab = tabsInfo.size() - 1;
+            strcat(newTab.name, std::to_string(g_TabsInfo.size()).c_str());
+        	g_LatencyStatsMutex.lock();
+            g_TabsInfo.push_back(newTab);
+        	g_LatencyStatsMutex.unlock();
+            g_SelectedTab = g_TabsInfo.size() - 1;
         }
         else if (key == 'Q' && wasJustClicked)
         {
@@ -2246,7 +2054,7 @@ int main(int argc, char** argv)
 #ifdef _WIN32
 	GUI::Setup(OnGui);
 #else
-    GUI::VSyncFrame = &currentUserData.performance.VSync;
+    GUI::VSyncFrame = &g_CurrentUserData.performance.VSync;
     GUI::Setup(OnGui);
     GUI::RegKeyCallback(key_callback);
 #endif
@@ -2256,11 +2064,11 @@ int main(int argc, char** argv)
 
     //AudioProcessor audioProcessor;
     audioProcessor.initialize();
-		
+
 	//localPath = argv[0];
 
 #ifdef _WIN32
-	QueryPerformanceCounter(&StartingTime);
+	QueryPerformanceCounter(&g_StartingTime);
 #endif
 
     // Doesnt do that much (anything) and I'd rather not be this "critical"
@@ -2286,8 +2094,6 @@ int main(int argc, char** argv)
 
 	ImGuiIO& io = ImGui::GetIO();
 
-	leftTabWidth = GUI::windowX/2;
-
 #ifdef _WIN32
 	GUI::KeyDownFunc = KeyDown;
 	//GUI::RawInputEventFunc = RawInputEvent;
@@ -2296,7 +2102,7 @@ int main(int argc, char** argv)
 	auto defaultTab = TabInfo();
 	defaultTab.name[4] = '0';
 	defaultTab.name[5] = '\0';
-	tabsInfo.push_back(defaultTab);
+	g_TabsInfo.push_back(defaultTab);
 
 #ifdef _WIN32
 	UINT modesNum = 256;
@@ -2304,11 +2110,11 @@ int main(int argc, char** argv)
 	GetMonitorModes(monitorModes, &modesNum);
 
 	GUI::MAX_SUPPORTED_FRAMERATE = monitorModes[modesNum - 1].RefreshRate.Numerator;
-	GUI::VSyncFrame = &currentUserData.performance.VSync;
+	GUI::VSyncFrame = &g_CurrentUserData.performance.VSync;
 #endif
 
-	//float colors[styleColorNum][4];
-	//float brightnesses[styleColorNum] = { accentBrightness, fontBrightness };
+	//float colors[STYLE_COLOR_NUM][4];
+	//float brightnesses[STYLE_COLOR_NUM] = { accentBrightness, fontBrightness };
 	//if (ReadStyleConfig(colors, brightnesses, selectedFont, fontSize))
 	if (LoadCurrentUserConfig())
 	{
@@ -2318,46 +2124,46 @@ int main(int argc, char** argv)
 		//// Set the default colors to the variables with a type conversion (ImVec4 -> float[4]) (could be done with std::copy,
 		//// but the performance advantage it gives is just immeasurable, especially for a single time execution code)
 
-		backupUserData = currentUserData;
+		g_BackupUserData = g_CurrentUserData;
 
-		GUI::LoadFonts(currentUserData.style.fontSize);
+		GUI::LoadFonts(g_CurrentUserData.style.fontSize);
 
 		for (int i = 0; i < io.Fonts->Fonts.Size; i++)
 		{
-			io.Fonts->Fonts[i]->Scale = currentUserData.style.fontSize;
+			io.Fonts->Fonts[i]->Scale = g_CurrentUserData.style.fontSize;
 		}
 
-		io.FontDefault = io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]];
+		io.FontDefault = io.Fonts->Fonts[g_FontIndex[g_CurrentUserData.style.selectedFont]];
 
-		auto _boldFont = GetFontBold(currentUserData.style.selectedFont);
+		auto _boldFont = GetFontBold(g_CurrentUserData.style.selectedFont);
 
 		if (_boldFont != nullptr)
-			boldFont = _boldFont;
+			g_BoldFont = _boldFont;
 		else
-			boldFont = io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]];
+			g_BoldFont = io.Fonts->Fonts[g_FontIndex[g_CurrentUserData.style.selectedFont]];
 
-		//boldFontBak = boldFont;
+		//boldFontBak = g_BoldFont;
 	}
 	else
 	{
 		auto& styleColors = ImGui::GetStyle().Colors;
-		memcpy(&currentUserData.style.mainColor, &(styleColors[ImGuiCol_Header]), colorSize);
-		memcpy(&currentUserData.style.fontColor, &(styleColors[ImGuiCol_Text]), colorSize);
+		memcpy(&g_CurrentUserData.style.mainColor, &(styleColors[ImGuiCol_Header]), COLOR_SIZE);
+		memcpy(&g_CurrentUserData.style.fontColor, &(styleColors[ImGuiCol_Text]), COLOR_SIZE);
 
-		memcpy(&backupUserData.style.mainColor, &(styleColors[ImGuiCol_Header]), colorSize);
-		memcpy(&backupUserData.style.fontColor, &(styleColors[ImGuiCol_Text]), colorSize);
+		memcpy(&g_BackupUserData.style.mainColor, &(styleColors[ImGuiCol_Header]), COLOR_SIZE);
+		memcpy(&g_BackupUserData.style.fontColor, &(styleColors[ImGuiCol_Text]), COLOR_SIZE);
 
 		GUI::LoadFonts(1);
 
-		currentUserData.performance.lockGuiFps = backupUserData.performance.lockGuiFps = true;
+		g_CurrentUserData.performance.lockGuiFps = g_BackupUserData.performance.lockGuiFps = true;
 
-		currentUserData.performance.showPlots = backupUserData.performance.showPlots = true;
+		g_CurrentUserData.performance.showPlots = g_BackupUserData.performance.showPlots = true;
 
-		currentUserData.performance.VSync = backupUserData.performance.VSync = false;
+		g_CurrentUserData.performance.VSync = g_BackupUserData.performance.VSync = false;
 
 #ifdef _WIN32
 		printf("found %u monitor modes\n", modesNum);
-		currentUserData.performance.guiLockedFps = (monitorModes[modesNum - 1].RefreshRate.Numerator / monitorModes[modesNum - 1].RefreshRate.Denominator) * 2;
+		g_CurrentUserData.performance.guiLockedFps = (monitorModes[modesNum - 1].RefreshRate.Numerator / monitorModes[modesNum - 1].RefreshRate.Denominator) * 2;
 
 #ifdef _DEBUG
 
@@ -2370,11 +2176,11 @@ int main(int argc, char** argv)
 
 #endif // _WIN32
 
-		backupUserData.performance.guiLockedFps = currentUserData.performance.guiLockedFps;
+		g_BackupUserData.performance.guiLockedFps = g_CurrentUserData.performance.guiLockedFps;
 
-		currentUserData.style.mainColorBrightness = backupUserData.style.mainColorBrightness = .1f;
-		currentUserData.style.fontColorBrightness = backupUserData.style.fontColorBrightness = .1f;
-		currentUserData.style.fontSize = backupUserData.style.fontSize = 1.f;
+		g_CurrentUserData.style.mainColorBrightness = g_BackupUserData.style.mainColorBrightness = .1f;
+		g_CurrentUserData.style.fontColorBrightness = g_BackupUserData.style.fontColorBrightness = .1f;
+		g_CurrentUserData.style.fontSize = g_BackupUserData.style.fontSize = 1.f;
 
 		shouldRunConfiguration = true;
 
@@ -2382,7 +2188,7 @@ int main(int argc, char** argv)
 	}
 
 	// Just imagine what would happen if user for example had a 220 character long username and path to %AppData% + "imgui.ini" would exceed 260. lovely
-	auto imguiFileIniPath = (currentUserData.misc.localUserData ? HelperJson::GetLocalUserConfigPath() : HelperJson::GetAppDataUserConfigPath());
+	auto imguiFileIniPath = (g_CurrentUserData.misc.localUserData ? HelperJson::GetLocalUserConfigPath() : HelperJson::GetAppDataUserConfigPath());
 	imguiFileIniPath = imguiFileIniPath.substr(0, imguiFileIniPath.find_last_of(OS_SPEC_PATH("\\/")) + 1) + OS_SPEC_PATH("imgui.ini");
 
 #ifdef _WIN32
@@ -2470,9 +2276,9 @@ MainLoop:
         }
 
 		// GUI Loop
-		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (currentUserData.performance.VSync ?
-			(GUI::MAX_SUPPORTED_FRAMERATE / currentUserData.performance.VSync) - 1 :
-			currentUserData.performance.guiLockedFps)) || !currentUserData.performance.lockGuiFps || currentUserData.performance.VSync)
+		if ((curTime - lastFrameGui + (lastFrameRenderTime) >= 1000000 / (g_CurrentUserData.performance.VSync ?
+			(GUI::MAX_SUPPORTED_FRAMERATE / g_CurrentUserData.performance.VSync) - 1 :
+			g_CurrentUserData.performance.guiLockedFps)) || !g_CurrentUserData.performance.lockGuiFps || g_CurrentUserData.performance.VSync)
         {
 			uint64_t frameStartRender = curTime;
 			if ((GUI_Return_Code = GUI::DrawGui()))
@@ -2505,13 +2311,13 @@ MainLoop:
 		lastFrame = curTime;
 
 		// Try to sleep enough to "wake up" right before having to display another frame
-		//if (!currentUserData.performance.VSync && currentUserData.performance.lockGuiFps)
+		//if (!g_CurrentUserData.performance.VSync && g_CurrentUserData.performance.lockGuiFps)
 		//{
-		//	uint64_t frameTime = 1000000 / currentUserData.performance.guiLockedFps;
+		//	uint64_t frameTime = 1000000 / g_CurrentUserData.performance.guiLockedFps;
 		//	uint64_t nextFrameIn = lastFrameGui + frameTime - micros() - lastFrameRenderTime;
 
 		//	printf("Next frame in %lldus\n", nextFrameIn);
-		//	
+		//
 		//	if (nextFrameIn > 2500) {
 		//		microsSleep(nextFrameIn - 1250);
 
@@ -2526,9 +2332,9 @@ MainLoop:
 
         // Actually do it on a semi-realtime OS
 #ifdef __linux__
-        if(!currentUserData.performance.VSync && currentUserData.performance.lockGuiFps) {
+        if(!g_CurrentUserData.performance.VSync && g_CurrentUserData.performance.lockGuiFps) {
             //static uint64_t last_nextFrameIn;
-            uint64_t frameTime = 1000000 / currentUserData.performance.guiLockedFps;
+            uint64_t frameTime = 1000000 / g_CurrentUserData.performance.guiLockedFps;
             uint64_t nextFrameIn = lastFrameGui + frameTime - micros() - lastFrameRenderTime;
 
             //if(last_nextFrameIn > 1000)
@@ -2550,7 +2356,7 @@ MainLoop:
 	}
 
 	// Check if everything is saved before exiting the program.
-	if (!tabsInfo[selectedTab].isSaved && GUI_Return_Code < 1)
+	if (!g_TabsInfo[g_SelectedTab].isSaved && GUI_Return_Code < 1)
 	{
 		goto MainLoop;
 	}

@@ -1,28 +1,14 @@
 #pragma once
 
-const int json_version = 5;
+const int JSON_VERSION = 5;
+
+#define CSV_SEP ','
 
 const size_t MEASUREMENTS_FILE_NAME_LENGTH = 32;
 const char invalidPathCharacters[]{'<', '>', ':', '"', '\\', '/', '|', '?', '*'};
 #ifndef MAX_PATH
 #define MAX_PATH 260
 #endif
-
-//#ifdef __linux__
-////const T& _min (const int a, const int b) {
-////    return b >= a ? a : b;
-////}
-//#define _min(a,b) \
-//   ({ __typeof__ (a) _a = (a); \
-//       __typeof__ (b) _b = (b); \
-//     _a < _b ? _a : _b; })
-//
-//#define _max(a,b) \
-//   ({ __typeof__ (a) _a = (a); \
-//       __typeof__ (b) _b = (b); \
-//     _a > _b ? _a : _b; })
-//
-//#endif
 
 #ifdef __linux__
 	#ifndef UINT

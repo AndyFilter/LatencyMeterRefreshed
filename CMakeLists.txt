@@ -4,9 +4,9 @@ project(LatencyMeterRefreshed)
 set(CMAKE_CXX_STANDARD 17)
 
 add_executable(${PROJECT_NAME} main.cpp
-        serial.cpp
-        helperJson.cpp
-        Audio/Sound_Helper.cpp
+        Serial/Serial.cpp
+        Helpers/JsonHelper.cpp
+        Audio/AudioProcessor.cpp
         External/nlohmann/json.hpp
         External/ImGui/imgui_extensions.cpp
         External/ImGui/imgui_widgets.cpp
@@ -17,8 +17,9 @@ add_executable(${PROJECT_NAME} main.cpp
         External/ImGui/imgui_impl_glfw.cpp
         External/ImGui/imgui.cpp
         gui.cpp
-        helper.cpp
-        helper.h)
+        Helpers/AppHelper.cpp
+        Helpers/AppHelper.h
+        structs.h)
 
 include_directories(${CMAKE_SOURCE_DIR})
 

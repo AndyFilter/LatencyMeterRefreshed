@@ -1,8 +1,7 @@
 #include <cstring>
 #include <cmath>
-#include "Sound_Helper.h"
+#include "AudioProcessor.h"
 
-bool AudioProcessor::is_initialized = false;
 //AudioProcessor::AudioProcessor() : in_stream(nullptr), playbackIndex(0), isRecording(false), isPlaying(false) {}
 
 AudioProcessor::~AudioProcessor() {
@@ -10,7 +9,8 @@ AudioProcessor::~AudioProcessor() {
 }
 
 bool AudioProcessor::initialize() {
-    if(is_initialized) return true;
+    if (is_initialized) return true;
+    if (recEndCallback == nullptr) return false;
 #ifdef _DEBUG
     printf("INITIALIZING PORT AUDIO!\n");
 #endif

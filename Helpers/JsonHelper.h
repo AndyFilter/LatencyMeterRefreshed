@@ -1,8 +1,8 @@
 #pragma once
 #include <vector>
 
-#include "structs.h"
-#include "constants.h"
+#include "../structs.h"
+#include "../constants.h"
 
 #ifndef _MAX_PATH
 #define _MAX_PATH MAX_PATH

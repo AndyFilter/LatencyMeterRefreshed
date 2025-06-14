@@ -1,10 +1,10 @@
 #include <fstream>
 #include <filesystem>
 
-#include "helperJson.h"
-#include "External/nlohmann/json.hpp"
-#include "constants.h"
-#include "helper.h"
+#include "JsonHelper.h"
+#include "../External/nlohmann/json.hpp"
+#include "../constants.h"
+#include "AppHelper.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -87,7 +87,7 @@ void to_json(json& j, LatencyReading reading)
 	{
 		{"timeExternal", reading.timeExternal },
 		{"timeInternal", reading.timeInternal },
-		{"timePing", reading.timePing },
+		{"timePing", reading.timeInput },
 		{"index", reading.index },
 	};
 }
@@ -148,7 +148,7 @@ void from_json(const json& j, LatencyReading& reading)
 {
 	j.at("timeExternal").get_to(reading.timeExternal);
 	j.at("timeInternal").get_to(reading.timeInternal);
-	j.at("timePing").get_to(reading.timePing);
+	j.at("timePing").get_to(reading.timeInput);
 	j.at("index").get_to(reading.index);
 }
 
@@ -453,7 +453,7 @@ size_t HelperJson::GetLatencyTests(std::vector<TabInfo> &tests, const char path[
     for(int i = tests.size() - elements; i < tests.size(); i++) {
         if(tests[i].saved_ver < 5)
             for (auto &item: tests[i].latencyData.measurements)
-                item.timeExternal *= 1000; // * helper::External2Micros in the old version
+                item.timeExternal *= 1000; // * AppHelper::g_External2Micros in the old version
     }
 
 	saveFile.close();

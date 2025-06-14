@@ -58,7 +58,7 @@ namespace GUI
 
 #define TOOLTIPFONT(...)														\
    	if (ImGui::IsItemHovered())	{												\
-		ImGui::PushFont(io.Fonts->Fonts[fontIndex[currentUserData.style.selectedFont]]);	\
+		ImGui::PushFont(io.Fonts->Fonts[g_FontIndex[g_CurrentUserData.style.selectedFont]]);	\
 		ImGui::SetTooltip(__VA_ARGS__);											\
 		ImGui::PopFont(); } 
 
