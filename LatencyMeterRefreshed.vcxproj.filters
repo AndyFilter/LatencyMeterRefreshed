@@ -86,7 +86,7 @@
     <ClInclude Include="gui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="structs.h">
+    <ClInclude Include="Models.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="External\nlohmann\json.hpp">
@@ -95,7 +95,7 @@
     <ClInclude Include="Helpers\JsonHelper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="constants.h">
+    <ClInclude Include="Config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="resource.h">

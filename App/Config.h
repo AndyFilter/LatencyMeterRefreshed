@@ -1,24 +1,21 @@
 #pragma once
 
-const int JSON_VERSION = 5;
+#define NOMINMAX
 
-#define CSV_SEP ','
+namespace Config {
+	constexpr int JSON_VERSION = 5;
 
-const size_t MEASUREMENTS_FILE_NAME_LENGTH = 32;
-const char invalidPathCharacters[]{'<', '>', ':', '"', '\\', '/', '|', '?', '*'};
+	constexpr size_t MEASUREMENTS_FILE_NAME_LENGTH = 32;
+
+	constexpr char CSV_SEP = ',';
+	constexpr size_t TAB_NAME_MAX_SIZE = 64;
+} // namespace Config
+
 #ifndef MAX_PATH
 #define MAX_PATH 260
 #endif
 
-#ifdef __linux__
-	#ifndef UINT
-	#define UINT unsigned int
-	#endif
-
-	#ifndef BYTE
-	#define BYTE unsigned char
-	#endif
-#endif
+#include <cstdint>
 
 // OS specific string / file formats:
 #ifdef _WIN32
@@ -35,4 +32,4 @@ const char invalidPathCharacters[]{'<', '>', ':', '"', '\\', '/', '|', '?', '*'}
 #define _DEBUG
 #endif
 
-//inline char* localPath;
+// inline char* localPath;

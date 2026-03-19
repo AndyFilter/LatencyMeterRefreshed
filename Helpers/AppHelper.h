@@ -1,33 +1,15 @@
 #pragma once
 
-#ifndef LATENCYMETERREFRESHED_APPHELPER_H
-#define LATENCYMETERREFRESHED_APPHELPER_H
-
-#include <mutex>
-
+#include <array>
+#include "../App/Models.h"
 #include "../External/ImGui/imgui.h"
-#include "../structs.h"
-#include <vector>
-#include <string>
+#include "App/AppState.h"
 
 #ifdef __linux__
 #include <unistd.h>
-#define _min(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a < _b ? _a : _b; })
-
-#define _max(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a > _b ? _a : _b; })
-
 #else
-
+#define NOMINMAX
 #include <windows.h>
-#define _min(a,b) min(a,b)
-#define _max(a,b) max(a,b)
-
 #endif
 
 #ifndef ZeroMemory
@@ -36,66 +18,55 @@
 #endif
 #endif
 
-inline ImGuiTableSortSpecs* g_SortSpec;
+#ifdef _DEBUG
+#define DEBUG_PRINT(...) printf( __VA_ARGS__ )
+#define DEBUG_ERROR(...) fprintf( stderr, __VA_ARGS__ )
+#define DEBUG_ERROR_LOC(...) fprintf( stderr, "[%s:%d] ", __FILE__, __LINE__); fprintf( stderr, __VA_ARGS__ )
+#else
+#define DEBUG_PRINT(...) do{ } while ( 0 )
+#define DEBUG_ERROR(...) do{ } while ( 0 )
+#define DEBUG_ERROR_LOC(...) do{ } while ( 0 )
+#endif
 
 namespace AppHelper {
+	void BindState(AppState &state);
 
-    inline unsigned long g_External2Micros = 1000;
-    constexpr int STYLE_COLOR_NUM = 2;
-    constexpr unsigned int COLOR_SIZE = 16;
+	constexpr int STYLE_COLOR_NUM = 2;
+	constexpr unsigned int COLOR_SIZE = 16;
 
-    inline ImFont* g_BoldFont;
+	inline ImFont *g_boldFont;
 
 #ifdef _WIN32
-    inline const char* g_Fonts[4]{ "Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console" };
-    inline const int g_FontIndex[4]{ 0, 2, 4, 5 };
+	inline LARGE_INTEGER g_StartingTime{0};
+	inline constexpr std::array<const char*, 4> FONTS {"Courier Prime", "Source Sans Pro", "Franklin Gothic", "Lucida Console"};
+	inline constexpr std::array<int, 4> FONT_INDEX {0, 2, 4, 5};
 #else
-    inline const char* g_Fonts[]{ "Courier Prime", "Source Sans Pro" };
-    inline constexpr int g_FontIndex[]{ 0, 2 };
+	inline constexpr std::array<const char*, 2> FONTS {"Courier Prime", "Source Sans Pro"};
+	inline constexpr std::array<int, 2> FONT_INDEX {0, 2};
 #endif
 
-    /* ---- User Data ---- */
-    inline UserData g_CurrentUserData{};
-    inline UserData g_BackupUserData{};
+	uint64_t GetTimeMicros();
 
-    inline std::vector<TabInfo> g_TabsInfo{};
-    inline std::mutex g_LatencyStatsMutex;
+	int CompareLatency(const void *a, const void *b);
+	void ApplyStyle(std::array<float*, 4> &colors, std::array<float, 4>  brightnesses);
+	void RevertConfig();
+	void DeleteTab(int tabIdx);
+	void SaveCurrentUserConfig();
+	bool LoadCurrentUserConfig();
+	void LoadAndHandleNewUserConfig();
+	void ApplyCurrentStyle();
+	void SetPlotLinesColor(ImVec4 color);
+	ImFont *GetFontBold(int baseFontIndex);
+	bool HasConfigChanged();
+	void RecalculateStats(bool recalculate_Average = false, int tabIdx = 0);
+	void AddMeasurement(std::uint32_t internalTime, std::uint32_t externalTime, std::uint32_t inputTime);
+	void RemoveMeasurement(size_t index);
+	bool SaveMeasurements();
+	bool SaveAsMeasurements();
+	bool SavePackMeasurements();
+	bool SavePackAsMeasurements();
+	JSON_HANDLE_INFO OpenMeasurements();
+	bool ExportCSV();
+	void MouseClick(); // This might not work for some applications
 
-    inline int g_SelectedTab = 0;
-
-    inline bool g_IsFullscreen = false;
-    inline bool g_FullscreenModeOpenPopup = false;
-    inline bool g_FullscreenModeClosePopup = false;
-    inline bool g_WasMeasurementAddedGUI = false;
-
-
-    int CompareLatency(const void* a, const void* b);
-
-#ifdef _WIN32
-    inline LARGE_INTEGER g_StartingTime{ 0 };
-#endif
-    uint64_t micros();
-
-    void ApplyStyle(float colors[STYLE_COLOR_NUM][4], float brightnesses[STYLE_COLOR_NUM]);
-    void RevertConfig();
-    void DeleteTab(int tab_idx);
-    void SaveCurrentUserConfig();
-    bool LoadCurrentUserConfig();
-    void ApplyCurrentStyle();
-    void SetPlotLinesColor(ImVec4 color);
-    ImFont* GetFontBold(int baseFontIndex);
-    bool HasConfigChanged();
-    void RecalculateStats(bool recalculate_Average = false, int tabIdx = g_SelectedTab);
-    void AddMeasurement(UINT internalTime, UINT externalTime, UINT inputTime);
-    void RemoveMeasurement(size_t index);
-    bool SaveMeasurements();
-    bool SaveAsMeasurements();
-    bool SavePackMeasurements();
-    bool SavePackAsMeasurements();
-    JSON_HANDLE_INFO OpenMeasurements();
-    bool ExportCSV();
-    void mouseClick(); // This might not work for some applications
-
-} // AppHelper
-
-#endif //LATENCYMETERREFRESHED_APPHELPER_H
+} // namespace AppHelper

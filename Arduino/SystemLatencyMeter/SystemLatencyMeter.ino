@@ -1,4 +1,4 @@
-#define EMULATE_MOUSE // Works only on supported devices (with UART), for example Pro Micro
+// #define EMULATE_MOUSE // Works only on supported devices (with UART), for example Pro Micro
 
 #ifdef EMULATE_MOUSE
 #include "HID-Project.h"
@@ -47,9 +47,12 @@ void setup() {
 const auto timingFunc = micros;
 
 void loop() {
-    LDRValue = reverseInput ? (1024 - analogRead(LDR)) : analogRead(LDR); // You might need to change it to LDRValue = 1024 - analogRead(LDR), if using some odd sensor
+    // You might need to change it to LDRValue = 1024 - analogRead(LDR), if using some odd sensor
+    LDRValue = reverseInput ? (1024 - analogRead(LDR)) : analogRead(LDR);
   #ifdef ARDUINO_AVR_UNO
-    buttonState = (PIND >> button & B00000100 >> button); // B00000100, the button is connected at pin 2, so we want to mask only the bit 2 (third one because we start from 0) (This is just a fancy way of writing digitalRead(button))
+    buttonState = (PIND >> button & B00000100 >> button); 
+    // B00000100, the button is connected at pin 2, so we want to mask only the bit 2 
+    // (third one because we start from 0) (This is just a fancy way of writing digitalRead(button))
   #else
     buttonState = digitalRead(button);
   #endif

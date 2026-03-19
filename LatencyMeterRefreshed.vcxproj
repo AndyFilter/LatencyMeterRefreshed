@@ -177,7 +177,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Audio\AudioProcessor.h" />
-    <ClInclude Include="constants.h" />
+    <ClInclude Include="Config.h" />
     <ClInclude Include="External\ImGui\imconfig.h" />
     <ClInclude Include="External\ImGui\imgui.h" />
     <ClInclude Include="External\ImGui\imgui_extensions.h" />
@@ -194,7 +194,7 @@
     <ClInclude Include="gui.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Serial\Serial.h" />
-    <ClInclude Include="structs.h" />
+    <ClInclude Include="Models.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="LatencyMeterRefreshed.rc" />

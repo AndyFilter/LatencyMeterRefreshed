@@ -1,101 +1,121 @@
 #pragma once
 
-// God, I LOVE Microsoft!
-#ifdef _MSC_VER
-#include "../Dependencies/PortAudio/Include/portaudio.h"
-#else
-#include "Dependencies/PortAudio/Include/portaudio.h"
-#endif
+#include <array>
+#include <atomic>
+#include <portaudio.h>
+#include <string>
+#include <utility>
 #include <vector>
-#include <iostream>
-#include "../constants.h"
 
-static constexpr unsigned int REC_SAMPLE_RATE = 44100;
-static constexpr unsigned int SAMPLES_PER_BUFFER = 256;
-static constexpr unsigned int FRAMES_TO_CAPTURE = (SAMPLES_PER_BUFFER * 100); // Should be divisible by SAMPLES_PER_BUFFER,
-// if not, greater multiple of SAMPLES_PER_BUFFER of frames will be captured.
-#define MAIN_BUFFER_SIZE_FRACTION 3 // one-over-x (1/x). How much of the whole buffer (FRAMES_TO_CAPTURE) should be
-// used for the audio detection. The rest is to "calm down" the audio processor before the next measurement.
-constexpr float MAIN_BUFFER_TIME_SPAN = ((float)FRAMES_TO_CAPTURE / MAIN_BUFFER_SIZE_FRACTION) / REC_SAMPLE_RATE; // in seconds
-constexpr float BUFFER_TIME_SPAN = (float)FRAMES_TO_CAPTURE / REC_SAMPLE_RATE; // in seconds
+constexpr unsigned int REC_SAMPLE_RATE = 44100;
+constexpr unsigned int AUDIO_SAMPLE_RATE = REC_SAMPLE_RATE;
+constexpr unsigned int SAMPLES_PER_BUFFER = 256;
+constexpr unsigned int FRAMES_TO_CAPTURE = (SAMPLES_PER_BUFFER * 100); // Should be divisible by SAMPLES_PER_BUFFER,
+// if not, a greater multiple of SAMPLES_PER_BUFFER of frames will be captured.
+
+// one-over-x (1/x). How much of the whole buffer (FRAMES_TO_CAPTURE) should be used for the audio detection.
+// The rest is to "calm down" the audio processor before the next measurement.
+constexpr unsigned int MAIN_BUFFER_SIZE_FRACTION_RECIPROCAL = 3;
+
+constexpr unsigned int ANALYSIS_FRAMES = FRAMES_TO_CAPTURE / MAIN_BUFFER_SIZE_FRACTION_RECIPROCAL;
+constexpr float MAIN_BUFFER_TIME_SPAN =
+    (static_cast<float>(FRAMES_TO_CAPTURE) / MAIN_BUFFER_SIZE_FRACTION_RECIPROCAL) / REC_SAMPLE_RATE; // in seconds
+constexpr float BUFFER_TIME_SPAN = static_cast<float>(FRAMES_TO_CAPTURE) / REC_SAMPLE_RATE; // in seconds
 
 #define OUTPUT_BUFFER_TYPE short
 
-class cAudioDeviceInfo
+class AudioDeviceInfo
 {
 public:
     unsigned int id{};
-    bool AudioEnchantments = false;
-    const char* friendlyName{};
+    bool audioEnchantments = false;
+    std::string friendlyName{};
     const char* portName{}; // EnumerationName
     bool isInput = false;
 
-    cAudioDeviceInfo(const unsigned int id, bool enchantments, const char* friendlyName, const char* portName, bool is_input)
-            : id(id), friendlyName(friendlyName), portName(portName),
-              AudioEnchantments(enchantments), isInput(is_input)
+    AudioDeviceInfo(const unsigned int audioDeviceId, const bool enchantments, std::string friendlyName,
+                    const char* portName, const bool is_input) :
+        id(audioDeviceId), audioEnchantments(enchantments), friendlyName(std::move(friendlyName)), portName(portName),
+        isInput(is_input)
     {
     }
 
-    cAudioDeviceInfo() = default;
+    AudioDeviceInfo() = default;
 };
 
 
 /**
  * @class AudioProcessor
- * @brief Handles audio capture and playback operations using PortAudio library.
+ * @brief Handles audio capture and playback operations using the PortAudio library.
  *
  * The AudioProcessor class provides functionality to record and playback audio
- * using streams. It includes methods to initialize, terminate, prime, start, and
+ * using streams. It includes methods to initialise, terminate, prime, start, and
  * stop audio streams for both recording and playback. The class manages internal
  * buffers and device indices for audio operations.
  */
-class AudioProcessor {
+class AudioProcessor
+{
 public:
-    std::vector<short> recordedSamples;
-    std::vector<OUTPUT_BUFFER_TYPE> playbackSamples;
+	std::vector<OUTPUT_BUFFER_TYPE> playbackSamples;
 
-    AudioProcessor(void (*_recEndCallback)()) : in_stream(nullptr), playbackIndex(0), isRecording(false), isPlaying(false), recEndCallback(_recEndCallback) {};
+	// Whole capture buffers (double-buffered write side)
+	std::array<std::array<short, FRAMES_TO_CAPTURE>, 2> captureBuffers{};
+
+	// Published snapshot used by BOTH analysis and GUI (first 1/3 only)
+	std::array<short, ANALYSIS_FRAMES> snapshotBuffer{};
+
+	std::atomic<bool> snapshotReady{false};
+	std::atomic<size_t> snapshotEpoch{0};
+
+    AudioProcessor() = default;
     ~AudioProcessor();
 
-    bool initialize();
-    void terminate();
-    void restart(); // Stops streams, terminates and initializes
+    bool Initialize();
+    void Terminate();
+    void Restart(); // Stops streams, terminates and initialises
 
-    unsigned int GetAudioDevices(std::vector<cAudioDeviceInfo> &devices);
+    unsigned int GetAudioDevices(std::vector<AudioDeviceInfo>& devices) const;
 
-    bool primeRecordingStream(PaDeviceIndex idx); // Prepares the stream for recording
-    bool startRecording(); // Requires the stream to be primed beforehand!
-    void stopRecording();
-    bool primePlaybackStream(PaDeviceIndex idx); // Prepares the stream for playback
-    bool startPlayback(); // Requires the stream to be primed beforehand!
-    void stopPlayback();
+	const short* GetSnapshotBuffer() const {
+		return snapshotBuffer.data();
+	}
+
+    bool PrimeRecordingStream(PaDeviceIndex idx); // Prepares the stream for recording
+    bool StartRecording(); // Requires the stream to be primed beforehand!
+    void StopRecording();
+    bool PrimePlaybackStream(PaDeviceIndex idx); // Prepares the stream for playback
+    bool StartPlayback(); // Requires the stream to be primed beforehand!
+    void StopPlayback();
 
 private:
-    static int recordCallback(const void *inputBuffer, void *outputBuffer,
-                              unsigned long framesPerBuffer,
-                              const PaStreamCallbackTimeInfo* timeInfo,
-                              PaStreamCallbackFlags statusFlags,
-                              void *userData);
+    static int RecordCallback(const void* inputBuffer, void* outputBuffer, unsigned long framesPerBuffer,
+                              const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags,
+                              void* userData);
 
-    static int playbackCallback(const void *inputBuffer, void *outputBuffer,
-                                unsigned long framesPerBuffer,
-                                const PaStreamCallbackTimeInfo* timeInfo,
-                                PaStreamCallbackFlags statusFlags,
-                                void *userData);
+    static int PlaybackCallback(const void* inputBuffer, void* outputBuffer, unsigned long framesPerBuffer,
+                                const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags,
+                                void* userData);
 
-    void flushPlaybackBuffer();
-    void flushRecordBuffer();
+    void FlushPlaybackBuffer();
+    void FlushRecordBuffer();
 
-    PaStream *in_stream = nullptr;
-    PaStream *out_stream = nullptr;
-    size_t playbackIndex;
-    bool isRecording = false;
-    bool isPlaying = false;
-    size_t frames_captured = 0;
-    void (*recEndCallback)();
+    PaStream* inStream_ = nullptr;
+    PaStream* outStream_ = nullptr;
 
-    PaDeviceIndex in_dev_idx = -1;
-    PaDeviceIndex out_dev_idx = -1;
+    size_t playbackIndex_{0};
 
-    bool is_initialized = false;
+    bool isRecording_ = false;
+    bool isPlaying_ = false;
+	bool calledEnd_ = false;
+
+	bool snapshotPublished_ = false;
+    size_t framesCaptured_ = 0;
+	int writeBufferIndex_ = 1;
+
+	std::atomic<size_t> currentEpoch_{0};
+
+    PaDeviceIndex inDevIdx_ = -1;
+    PaDeviceIndex outDevIdx_ = -1;
+
+    bool isInitialized_ = false;
 };

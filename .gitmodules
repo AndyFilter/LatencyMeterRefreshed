@@ -1,0 +1,6 @@
+[submodule "Dependencies/glfw"]
+	path = Dependencies/glfw
+	url = https://github.com/glfw/glfw
+[submodule "Dependencies/portaudio"]
+	path = Dependencies/portaudio
+	url = https://github.com/PortAudio/portaudio
