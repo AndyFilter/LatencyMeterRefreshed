@@ -72,7 +72,6 @@ public:
 
     bool Initialize();
     void Terminate();
-    void Restart(); // Stops streams, terminates and initialises
 
     unsigned int GetAudioDevices(std::vector<AudioDeviceInfo>& devices) const;
 
@@ -96,9 +95,6 @@ private:
                                 const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags,
                                 void* userData);
 
-    void FlushPlaybackBuffer();
-    void FlushRecordBuffer();
-
     PaStream* inStream_ = nullptr;
     PaStream* outStream_ = nullptr;
 
@@ -107,6 +103,8 @@ private:
     bool isRecording_ = false;
     bool isPlaying_ = false;
 	bool calledEnd_ = false;
+	bool finishedRecording_ = false;
+	bool finishedPlayback_ = false;
 
 	bool snapshotPublished_ = false;
     size_t framesCaptured_ = 0;

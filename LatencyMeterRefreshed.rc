@@ -52,7 +52,7 @@ END
 
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDI_ICON1               ICON                    "H:\\Users\\gmaci\\Desktop\\Projekty\\Latency Meter\\Media\\LatencyMeterIco.ico"
+IDI_ICON1               ICON                    "Media/LatencyMeterIco.ico"
 
 #endif    // English (United Kingdom) resources
 /////////////////////////////////////////////////////////////////////////////

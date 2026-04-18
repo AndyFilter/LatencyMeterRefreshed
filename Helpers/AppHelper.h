@@ -19,9 +19,9 @@
 #endif
 
 #ifdef _DEBUG
-#define DEBUG_PRINT(...) printf( __VA_ARGS__ )
-#define DEBUG_ERROR(...) fprintf( stderr, __VA_ARGS__ )
-#define DEBUG_ERROR_LOC(...) fprintf( stderr, "[%s:%d] ", __FILE__, __LINE__); fprintf( stderr, __VA_ARGS__ )
+#define DEBUG_PRINT(...) printf("[%.6f] ", AppHelper::GetTimeMicros() / 1e6f); printf( __VA_ARGS__ )
+#define DEBUG_ERROR(...) fprintf( stderr, "[%.6f] ", AppHelper::GetTimeMicros() / 1e6f); fprintf( stderr, __VA_ARGS__ )
+#define DEBUG_ERROR_LOC(...) fprintf( stderr, "[%.6f] [%s:%d] ", AppHelper::GetTimeMicros() / 1e6f, __FILE__, __LINE__); fprintf( stderr, __VA_ARGS__ )
 #else
 #define DEBUG_PRINT(...) do{ } while ( 0 )
 #define DEBUG_ERROR(...) do{ } while ( 0 )

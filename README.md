@@ -2,18 +2,18 @@
 
 [![GitHub top language](https://img.shields.io/github/languages/top/AndyFilter/LatencyMeterRefreshed.svg)](https://en.wikipedia.org/wiki/C%2B%2B)  [![Windows](https://img.shields.io/badge/platform-Windows-0078d7.svg)](https://en.wikipedia.org/wiki/Microsoft_Windows) [![GitHub all releases](https://img.shields.io/github/downloads/AndyFilter/LatencyMeterRefreshed/total.svg)](https://github.com/AndyFilter/LatencyMeterRefreshed/releases/latest)  [![GitHub](https://img.shields.io/github/license/AndyFilter/LatencyMeterRefreshed.svg)](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/main/LICENSE) 
 
-This program lets you **measure latency of your system** given that you have Arduino. ***Now in C++!***
+This program lets you **measure the latency of your system** given that you have Arduino. ***Now in C++!***
 
-# Measure performance and latency of your PC
+# Measure the performance and latency of your PC
 
-Are you interested in measuring the latency of your system, but can't afford a **750\$ monitor**? Well in that case you are not alone! This program lets you measure even the latency of a single component like **mouse latency, system latency,** or just overall latency. For not more than **10$**!
+Are you interested in measuring the latency of your system but can't afford a **750\$ monitor**? Well, in that case you are not alone! This program lets you measure even the latency of a single component like **mouse latency, system latency,** or just overall latency. For not more than **10$**!
 
 # What will you need
 
 - **Arduino** (I used UNO, but I think it will work with others too, you will just need to change the second line in the loop function to utilize *digitalRead* function instead of reading directly from the registers.)
 - Some jumper wires.
 - A photoresistor (I don't think the type really matters, but mine seems to be working from 300Ω to 5MΩ).
-- Like a 500Ω resistor (Not required. On Arduino Uno you can use built-in pullup resistor).
+- Like a 500Ω resistor (Not required. On Arduino Uno you can use a built-in pullup resistor).
 - A button.
 - Windows 10 / 11(not tested) or Linux and basic knowledge of using it.
   
@@ -36,6 +36,35 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 4. Upload the [***Code***](Arduino/SystemLatencyMeter/SystemLatencyMeter.ino) onto the board.
 5. Download the [***latest release***](https://github.com/AndyFilter/LatencyMeterRefreshed/releases/latest) of the program.
 
+## Compile from source
+
+### Prerequisites
+- [CMake](https://cmake.org/download/)
+- [Git](https://git-scm.com/downloads)
+- [Arduino IDE](https://www.arduino.cc/en/software) (for Arduino)
+
+1. Clone the repository (download as zip and extract it, or use `git clone https://github.com/AndyFilter/LatencyMeterRefreshed.git`).
+2. Go into the cloned folder (`cd LatencyMeterRefreshed`).
+3. Download submodules (`git submodule update --init --recursive`).
+4. Create a build folder (`mkdir build`).
+5. Go into the build folder (`cd build`).
+6. Run CMake (`cmake .. -DCMAKE_BUILD_TYPE=Release`).
+7. Build (`make` or `cmake --build . --config Release` or `msbuild LatencyMeterRefreshed.sln /property:Configuration=Release`).
+8. Run the program (`./LatencyMeterRefreshed`).
+
+When using CMake, you can run this:
+```shell
+git clone https://github.com/AndyFilter/LatencyMeterRefreshed.git
+cd LatencyMeterRefreshed
+git submodule update --init --recursive
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . --config Release
+```
+
+Now, on Linux the program should be in the `build` folder. On Windows it's in the `Release/` folder.
+
 # How to use
 
 1. Make sure you have everything wired up as shown in the schematic above
@@ -45,7 +74,7 @@ I would recommend putting a **500Ω resistor in series with the light sensor**. 
 5. Press *Connect*. If everything goes right, the program should not close, and you should see no errors.
 6. Press the **Button** connected to the **PIN 2** of the Arduino.
 7. The measurements should appear on the screen!
-8. You can now **Save** them, and if that's not your first time using the program you can even **Open** the saves you exported earlier!
+8. You can now **Save** them, and if that's not your first time using the program, you can even **Open** the saves you exported earlier!
 
 # Internal Mode
 This mode uses a sensor connected to a 3.5mm jack microphone input instead of a microcontroller. So, you will have to connect a photoresistor to a microphone jack cable.
@@ -56,16 +85,16 @@ Or in case of doing audio latency tests, you won't have to do nothing assuming y
   - Alt+Enter
 - Audio Latency doesn’t work!
   - There is a chance that your *microphone* uses inverse signal, in which case you will just need to change how the Arduino interprets the sensor data.		
-    For example change the first line in the *"loop"* function in your Arduino code to "LDRValue = 1024 - analogRead(LDR);". As you can see it takes analogue value of the sensor and re-maps it from [0, 1024] -> [1024, 0].
+    For example, change the first line in the *"loop"* function in your Arduino code to "LDRValue = 1024 - analogRead(LDR);". As you can see it takes analogue value of the sensor and re-maps it from [0, 1024] -> [1024, 0].
 
 ## Notes
-Please update the program's refresh rate to for example 2x your monitor's refresh rate.<br>
+Please update the program's refresh rate to, for example, 2x your monitor's refresh rate.<br>
 Also keep in mind that when V-Sync is OFF, the program will use 100% of the logical core it's running on.<br>
 When using *Internal Mode* I tend to get results with about 1 to 2 ms higher latency.
 
 # Modifications
 
-If you want to change for example the baud rate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontroller's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13).
+If you want to change, for example, the baud rate, you will not only need to change it in the [program's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/4fecf90172a97df74cab3bb14bb9c1e6ab2867e5/serial.cpp#L8), but also the [microcontroller's code](https://github.com/AndyFilter/LatencyMeterRefreshed/blob/0945cbe56f871165e6b8501b31337c465c417033/Arduino/SystemLatencyMeter.ino#L13).
 It is done that way to save on *cpu* cycles on the Arduino part. I could make it so that you can change the baud rate from the program itself, but the current value of 19200 allows for **sub millisecond delays** and is reliable.
 All this makes it kind of pointless to change it to 9600 or maybe even 152000. With that said, I think the program could benefit from things like custom delay between measurements etc. I might look into that and check if it adds any significant latency, if not; expect it in some future update.
 
@@ -75,7 +104,7 @@ If you have any kind of question or issue to report. DM me through Discord: **Is
 
 # Edits & Forks
 
-Feel free to fork the project. Tweak, fix and add to the code. I tried to add as many **useful comments** to the code as it's possible, so code should be **easy to read**.
-I'll be fixing and adding to the code myself, when I'll see a need to.
+Feel free to fork the project. Tweak, fix and add to the code. I tried to add as many **useful comments** to the code as it's possible, so the code should be **easy to read**.
+I'll be fixing and adding to the code myself when I see a need to.
 
 

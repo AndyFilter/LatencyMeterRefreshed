@@ -50,56 +50,50 @@ void AudioProcessor::Terminate() {
 	isInitialized_ = false;
 }
 
-void AudioProcessor::Restart() {
-#ifdef _WIN32
-	if (!isInitialized_)
-		return;
-
-	const PaError err = Pa_CloseStream(inStream_);
-	if (err != paNoError) {
-		DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
-	}
-	inStream_ = nullptr;
-	outStream_ = nullptr;
-
-	Pa_Terminate();
-	Pa_Initialize();
-#endif
-}
-
 bool AudioProcessor::PrimeRecordingStream(const PaDeviceIndex idx) {
 	if (!isInitialized_)
 		return false;
 
 	PaError err;
 
-	if ((inStream_ != nullptr) && idx == inDevIdx_ && Pa_IsStreamActive(inStream_) == 1) {
-		if (err = Pa_StopStream(inStream_); err != paNoError) {
+	// Always fully dispose of old stream
+	if (inStream_ != nullptr) {
+		err = Pa_StopStream(inStream_);
+		if (err != paNoError && err != paStreamIsStopped) {
+			DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
+		}
+
+		err = Pa_CloseStream(inStream_);
+		if (err != paNoError) {
 			DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
 			return false;
 		}
-		return true;
+
+		inStream_ = nullptr;
 	}
 
-	inStream_ = nullptr;
 	PaStreamParameters inputParameters;
-	inputParameters.device = idx == -1 ? Pa_GetDefaultInputDevice() : idx;
+	inputParameters.device = (idx == -1) ? Pa_GetDefaultInputDevice() : idx;
 
-	if (inputParameters.device == paNoDevice || (Pa_GetDeviceInfo(inputParameters.device) == nullptr)) {
-		DEBUG_ERROR_LOC("No default input device.\n");
+	const PaDeviceInfo* devInfo = Pa_GetDeviceInfo(inputParameters.device);
+	if (inputParameters.device == paNoDevice || devInfo == nullptr) {
+		DEBUG_ERROR_LOC("No valid input device.\n");
 		return false;
 	}
+
 	inputParameters.channelCount = 1;
 	inputParameters.sampleFormat = paInt16;
-	inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
+	inputParameters.suggestedLatency = devInfo->defaultLowInputLatency;
 	inputParameters.hostApiSpecificStreamInfo = nullptr;
 
 	DEBUG_PRINT("Priming in buffer!\n");
 
 	inDevIdx_ = idx;
 	framesCaptured_ = 0;
-	//recordedSamples.clear();
-	err = Pa_OpenStream(&inStream_, &inputParameters, nullptr, REC_SAMPLE_RATE, SAMPLES_PER_BUFFER, paClipOff, RecordCallback, this);
+
+	err = Pa_OpenStream(&inStream_, &inputParameters, nullptr, REC_SAMPLE_RATE, SAMPLES_PER_BUFFER,paClipOff,
+	                    RecordCallback, this);
+
 	if (err != paNoError) {
 		DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
 		return false;
@@ -112,6 +106,8 @@ bool AudioProcessor::StartRecording() {
 	if (inStream_ == nullptr)
 		return false;
 
+	DEBUG_PRINT("Started recording!\n");
+
 	// New test epoch begins here
 	const auto epoch = currentEpoch_.fetch_add(1, std::memory_order_relaxed) + 1;
 	(void)epoch;
@@ -119,6 +115,7 @@ bool AudioProcessor::StartRecording() {
 	snapshotReady.store(false, std::memory_order_release);
 	snapshotPublished_ = false;
 	framesCaptured_ = 0;
+	finishedRecording_ = false;
 
 	if (const PaError err = Pa_StartStream(inStream_); err != paNoError) {
 		DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
@@ -154,19 +151,17 @@ void AudioProcessor::StopRecording() {
 bool AudioProcessor::PrimePlaybackStream(const PaDeviceIndex idx) {
 	if (!isInitialized_)
 		return false;
-	if ((outStream_ != nullptr) && outDevIdx_ == idx) {
-		StopPlayback();
-		return true;
-	}
 	PaError err;
-	if (outDevIdx_ == idx) {
-		// Try to close the old stream, but don't panic if it fails
+	if (outStream_ != nullptr) {
+		StopPlayback();
+
 		err = Pa_CloseStream(outStream_);
-		if(err != paNoError) {
+		if (err != paNoError) {
 			DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
 		}
+
+		outStream_ = nullptr;
 	}
-	outStream_ = nullptr;
 	PaStreamParameters outputParameters;
 	outputParameters.device = idx == -1 ? Pa_GetDefaultOutputDevice() : idx;
 	if (outputParameters.device == paNoDevice) {
@@ -176,7 +171,7 @@ bool AudioProcessor::PrimePlaybackStream(const PaDeviceIndex idx) {
 	const auto *params = Pa_GetDeviceInfo(outputParameters.device);
 	outputParameters.channelCount = 1;
 	outputParameters.sampleFormat = paInt16; // assumes OUTPUT_BUFFER_TYPE is short
-	outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
+	outputParameters.suggestedLatency = params->defaultLowOutputLatency;
 	outputParameters.hostApiSpecificStreamInfo = nullptr;
 
 	DEBUG_PRINT("Priming out buffer!\n");
@@ -194,13 +189,19 @@ bool AudioProcessor::PrimePlaybackStream(const PaDeviceIndex idx) {
 }
 
 bool AudioProcessor::StartPlayback() {
-	if (outStream_ == nullptr)
+	if (outStream_ == nullptr) {
+		DEBUG_ERROR_LOC("No output stream!\n");
 		return false;
+	}
+
+	finishedPlayback_ = false;
 
 	if (PaError const err = Pa_StartStream(outStream_); err != paNoError) {
 		DEBUG_ERROR_LOC("PortAudio error: %s\n", Pa_GetErrorText(err));
 		return false;
 	}
+
+	DEBUG_PRINT("Started playback!\n");
 
 	isPlaying_ = true;
 	return true;
@@ -215,10 +216,6 @@ void AudioProcessor::StopPlayback() {
 	}
 
 	DEBUG_PRINT("Stopped playback!\n");
-
-#ifdef __linux__
-	FlushPlaybackBuffer();
-#endif
 
 	playbackIndex_ = 0;
 	//err = Pa_CloseStream(outStream_);
@@ -237,6 +234,9 @@ int AudioProcessor::RecordCallback(const void *inputBuffer, void *, const unsign
 	auto *processor = static_cast<AudioProcessor *>(userData);
 	const auto *in = static_cast<const short *>(inputBuffer);
 
+	if (processor->finishedRecording_)
+		return paComplete;
+
 	if (statusFlags != 0u) {
 		DEBUG_PRINT("status flag = %lu\n", statusFlags);
 	}
@@ -247,8 +247,9 @@ int AudioProcessor::RecordCallback(const void *inputBuffer, void *, const unsign
 		processor->framesCaptured_ += framesPerBuffer;
 	}
 
-	// Publish snapshot once (first 1/3), for both analysis and GUI plotting
+	// Publish a snapshot once (first 1/MAIN_BUFFER_SIZE_FRACTION_RECIPROCAL), for both analysis and GUI plotting
 	if (!processor->snapshotPublished_ && processor->framesCaptured_ >= ANALYSIS_FRAMES) {
+		DEBUG_PRINT("Publishing snapshot!\n");
 		memcpy(processor->snapshotBuffer.data(),
 			   processor->captureBuffers[processor->writeBufferIndex_].data(),
 			   ANALYSIS_FRAMES * sizeof(short));
@@ -261,11 +262,11 @@ int AudioProcessor::RecordCallback(const void *inputBuffer, void *, const unsign
 	}
 
 	// Keep recording the rest as cooldown/sink, then complete
-	if (FRAMES_TO_CAPTURE <= processor->framesCaptured_ + (framesPerBuffer * 2)) {
+	if (processor->framesCaptured_ >= FRAMES_TO_CAPTURE && processor->snapshotPublished_) {
 		DEBUG_PRINT("captured %zu frames, fpb = %lu\n", processor->framesCaptured_, framesPerBuffer);
 		processor->writeBufferIndex_ ^= 1;
 		processor->framesCaptured_ = 0;
-		processor->snapshotPublished_ = false;
+		processor->finishedRecording_ = true;
 		return paComplete;
 	}
 
@@ -277,21 +278,29 @@ int AudioProcessor::PlaybackCallback(const void *, void *outputBuffer, const uns
 	auto *processor = static_cast<AudioProcessor *>(userData);
 	auto *out = static_cast<OUTPUT_BUFFER_TYPE *>(outputBuffer);
 
+	if (processor->finishedPlayback_)
+		return paComplete;
+
 	if (outputBuffer != nullptr) {
+		const unsigned long framesLeft = processor->playbackSamples.size() - processor->playbackIndex_;
+		const unsigned long framesToCopy = std::min(framesPerBuffer, framesLeft);
+
 		memcpy(out, processor->playbackSamples.data() + processor->playbackIndex_,
-		       framesPerBuffer * sizeof(OUTPUT_BUFFER_TYPE));
-		processor->playbackIndex_ += framesPerBuffer;
+		       framesToCopy * sizeof(OUTPUT_BUFFER_TYPE));
+
+		if (framesToCopy < framesPerBuffer) {
+			memset(out + framesToCopy, 0,
+			       (framesPerBuffer - framesToCopy) * sizeof(OUTPUT_BUFFER_TYPE));
+		}
+
+		processor->playbackIndex_ += framesToCopy;
+		DEBUG_PRINT("Playback: %llu/%llu\n", processor->playbackIndex_, processor->playbackSamples.size());
 	}
 
-	if (processor->playbackSamples.size() <= processor->playbackIndex_ + static_cast<size_t>(framesPerBuffer * 2)) {
-		//processor->isPlaying_ = false;
-		// Fill the stream with zeroes
-		const std::vector<OUTPUT_BUFFER_TYPE> dummyBuffer(SAMPLES_PER_BUFFER, 0);
-		// while (Pa_IsStreamActive(processor->outStream_) == 1) {
-		// 	Pa_ReadStream(processor->outStream_, (void*)dummyBuffer.data(), SAMPLES_PER_BUFFER);
-		// }
-		if (Pa_IsStreamActive(processor->outStream_) == 1)
-			Pa_WriteStream(processor->outStream_, dummyBuffer.data(), SAMPLES_PER_BUFFER);
+	if (processor->playbackIndex_ >= processor->playbackSamples.size()) {
+		DEBUG_PRINT("Playback buffer is full!\n");
+
+		processor->finishedPlayback_ = true;
 		return paComplete;
 	}
 
@@ -354,33 +363,4 @@ unsigned int AudioProcessor::GetAudioDevices(std::vector<AudioDeviceInfo> &devic
 	}
 
 	return 0;
-}
-
-void AudioProcessor::FlushPlaybackBuffer() {
-	if (playbackIndex_ > SAMPLES_PER_BUFFER)
-		playbackIndex_ -= SAMPLES_PER_BUFFER;
-	else
-		playbackIndex_ = 0;
-
-	Pa_StartStream(outStream_);
-	const std::vector<OUTPUT_BUFFER_TYPE> dummyBuffer(SAMPLES_PER_BUFFER, 0);
-	// while (Pa_IsStreamActive(outStream_) == 1) {
-	//  Pa_ReadStream(outStream_, dummyBuffer.data(), SAMPLES_PER_BUFFER);
-	// }
-	if (Pa_IsStreamActive(outStream_) == 1)
-		Pa_WriteStream(outStream_, dummyBuffer.data(), SAMPLES_PER_BUFFER);
-
-	Pa_StopStream(outStream_);
-}
-
-void AudioProcessor::FlushRecordBuffer() {
-	framesCaptured_ -= SAMPLES_PER_BUFFER;
-
-	Pa_StartStream(inStream_);
-	std::vector<OUTPUT_BUFFER_TYPE> dummyBuffer(SAMPLES_PER_BUFFER, 0);
-	//while (Pa_IsStreamActive(inStream_) == 1) {
-	Pa_ReadStream(inStream_, dummyBuffer.data(), SAMPLES_PER_BUFFER);
-	//}
-
-	Pa_StopStream(inStream_);
 }

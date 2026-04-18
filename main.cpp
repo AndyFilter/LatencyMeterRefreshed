@@ -1,4 +1,7 @@
 #ifdef _WIN32
+#ifdef NDEBUG
+#pragma comment(linker, "/SUBSYSTEM:windows")
+#endif
 #define NOMINMAX
 #include <Windows.h>
 #include <tchar.h>
@@ -124,7 +127,11 @@ bool LocalOnExit() {
 }
 
 // Main code
+#if defined(_WIN32) && defined(NDEBUG)
+int WINAPI WinMain(HINSTANCE  /*hInstance*/, HINSTANCE  /*hPrevInstance*/, PSTR  /*lpCmdLine*/, int  /*nCmdShow*/) {
+#else
 int main(int, char **) {
+#endif
 	static uint64_t lastFrameGui = 0;
 	static uint64_t lastFrame = 0;
 	constexpr unsigned int AVERAGE_FRAME_COUNT = 1000;
@@ -162,7 +169,7 @@ int main(int, char **) {
 
 #ifdef _WIN32
 #ifndef _DEBUG
-	::ShowWindow(::GetConsoleWindow(), SW_HIDE);
+	// ::ShowWindow(::GetConsoleWindow(), SW_HIDE);
 #else
 	//::ShowWindow(::GetConsoleWindow(), SW_SHOW);
 #endif
@@ -252,7 +259,6 @@ MainLoop:
 						((1000 * static_cast<uint64_t>(FRAMES_TO_CAPTURE) / AUDIO_SAMPLE_RATE) + (INTERNAL_TEST_DELAY))) {
 				DEBUG_PRINT("Buffer Ended\n");
 				GetAudioProcessor().StopRecording();
-				GetAudioProcessor().Restart();
 				GetAudioProcessor().PrimeRecordingStream(g_appState.availableAudioDevices[g_appState.selectedPort].id);
 				if (g_appState.isAudioMode)
 					GetAudioProcessor().PrimePlaybackStream(

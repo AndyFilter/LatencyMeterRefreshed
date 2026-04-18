@@ -9,7 +9,12 @@ set(PA_BUILD_STATIC ON CACHE INTERNAL "" FORCE)
 set(PA_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(PA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
+if(WIN32)
+    set(APP_RESOURCES "LatencyMeterRefreshed.rc")
+endif()
+
 add_executable(${PROJECT_NAME} main.cpp
+        ${APP_RESOURCES}
         GUI/UIComponents.cpp
         GUI/UIComponents.h
         Serial/Serial.cpp
@@ -33,6 +38,10 @@ add_executable(${PROJECT_NAME} main.cpp
         App/AppGui.h
         App/AppInput.cpp
         App/AppInput.h)
+
+set_target_properties(${PROJECT_NAME} PROPERTIES
+        WIN32_EXECUTABLE "$<CONFIG:Release>"
+)
 
 if (MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4)
